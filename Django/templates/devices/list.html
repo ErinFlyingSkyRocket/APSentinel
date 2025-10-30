@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Device List</h2>
+
+<p><a href="{% url 'add_device' %}">➕ Add New Device</a></p>
+
+<table border="1" cellspacing="0" cellpadding="6">
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Name</th>
+      <th>Active</th>
+      <th>Enrolled</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for d in devices %}
+    <tr>
+      <td>{{ d.id }}</td>
+      <td>{{ d.name }}</td>
+      <td>{% if d.is_active %}✅ Active{% else %}❌ Inactive{% endif %}</td>
+      <td>{{ d.enrolled_at }}</td>
+      <td>
+        <form method="post" action="/ui/devices/{{ d.id }}/toggle" style="display:inline;">{% csrf_token %}
+          <button type="submit">Toggle</button>
+        </form>
+        <form method="post" action="/ui/devices/{{ d.id }}/delete" style="display:inline;" onsubmit="return confirm('Delete this device?');">{% csrf_token %}
+          <button type="submit">Delete</button>
+        </form>
+      </td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="5" align="center">No devices yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

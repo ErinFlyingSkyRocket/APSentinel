@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Add Device</h2>
+
+<!-- Generate keypair on the same page -->
+<form method="post" style="margin-bottom:16px;">
+  {% csrf_token %}
+  <input type="hidden" name="action" value="gen">
+  <button type="submit">Generate ECDSA P-256 Keypair</button>
+</form>
+
+{% if generated %}
+  <div style="margin:12px 0; padding:12px; border:1px solid #333; border-radius:8px;">
+    <h3>Generated Keys</h3>
+    <p><strong>Public Key (auto-filled below):</strong></p>
+    <pre style="overflow-x:auto; background:#111; padding:8px; border-radius:6px;"><code>{{ public_pem }}</code></pre>
+    <p><strong>Private Key (copy into ESP32; NOT stored):</strong></p>
+    <pre style="overflow-x:auto; background:#111; padding:8px; border-radius:6px;"><code>{{ private_pem }}</code></pre>
+  </div>
+{% endif %}
+
+<!-- Add device -->
+<form method="post" style="margin-top:20px;">
+  {% csrf_token %}
+  <input type="hidden" name="action" value="add">
+
+  <label for="name">Name</label><br>
+  <input id="name" name="name" required style="width:420px;"><br><br>
+
+  <label for="pubkey_pem">Public Key (PEM)</label><br>
+  <textarea id="pubkey_pem" name="pubkey_pem" rows="8" style="width:420px;" placeholder="-----BEGIN PUBLIC KEY-----">
+{{ public_pem }}
+  </textarea><br><br>
+
+  <!-- fixed checkbox alignment -->
+  <div style="display:flex;align-items:center;gap:8px;margin:8px 0;">
+    <input type="checkbox" id="is_active" name="is_active" checked>
+    <label for="is_active" style="margin:0;">Active</label>
+  </div>
+
+  <label for="location">Location</label><br>
+  <input id="location" name="location" style="width:420px;"><br><br>
+
+  <label for="description">Description</label><br>
+  <textarea id="description" name="description" rows="3" style="width:420px;"></textarea><br><br>
+
+  <button type="submit">Add Device</button>
+</form>
+
+<p style="margin-top:16px;"><a href="/ui/devices">Back to Device List</a></p>
+{% endblock %}

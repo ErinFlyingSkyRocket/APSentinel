@@ -1,45 +1,79 @@
 {% extends "base.html" %}
 {% block content %}
-<h2>Observations</h2>
 
-<form method="get" class="row">
-  <input type="text" name="q" placeholder="SSID or BSSID" value="{{ request.GET.q }}">
-  <select name="device">
-    <option value="">All devices</option>
-    {% for d in devices %}
-      <option value="{{ d.id }}" {% if request.GET.device == d.id|stringformat:"s" %}selected{% endif %}>{{ d.name }}</option>
-    {% endfor %}
-  </select>
-  <input type="date" name="since" value="{{ request.GET.since }}">
-  <input type="date" name="until" value="{{ request.GET.until }}">
-  <button type="submit">Filter</button>
-  <a href="/ui/observations">Reset</a>
-  <a href="?{{ request.GET.urlencode }}&export=csv" style="margin-left:auto">Export CSV</a>
+<h2 class="page-title">Observations</h2>
+
+<form method="get" class="filterbar">
+  <div class="field">
+    <label for="q">SSID or BSSID</label>
+    <input id="q" type="text" name="q" placeholder="e.g. Guest or AA:BB:CC:DD:EE:FF" value="{{ request.GET.q }}">
+  </div>
+
+  <div class="field">
+    <label for="device">Device</label>
+    <select id="device" name="device">
+      <option value="">All devices</option>
+      {% for d in devices %}
+        <option value="{{ d.id }}" {% if request.GET.device == d.id|stringformat:"s" %}selected{% endif %}>{{ d.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="field">
+    <label for="since">Since</label>
+    <input id="since" type="date" name="since" value="{{ request.GET.since }}">
+  </div>
+
+  <div class="field">
+    <label for="until">Until</label>
+    <input id="until" type="date" name="until" value="{{ request.GET.until }}">
+  </div>
+
+  <div class="field">
+    <label>&nbsp;</label>
+    <button type="submit">Filter</button>
+  </div>
+
+  <div class="field btn-inline">
+    <label>&nbsp;</label>
+    <a href="/ui/observations" class="btn-link">Reset</a>
+    <a href="?{{ request.GET.urlencode }}&export=csv" class="btn-link">Export CSV</a>
+  </div>
 </form>
 
-<table>
-  <thead>
-    <tr><th>ID</th><th>Time (server)</th><th>Device</th><th>SSID</th><th>BSSID</th><th>RSSI</th></tr>
-  </thead>
-  <tbody>
-    {% for o in page.object_list %}
-    <tr>
-      <td><a href="/ui/observations/{{ o.id }}">{{ o.id }}</a></td>
-      <td>{{ o.server_ts }}</td>
-      <td>{{ o.device.name }}</td>
-      <td>{{ o.ssid }}</td>
-      <td><span class="pill">{{ o.bssid }}</span></td>
-      <td>{{ o.rssi|default:"" }}</td>
-    </tr>
-    {% empty %}
-    <tr><td colspan="6" class="muted">No results</td></tr>
-    {% endfor %}
-  </tbody>
-</table>
-
-<div class="row">
-  {% if page.has_previous %}<a href="?page={{ page.previous_page_number }}&{{ keepqs }}">Prev</a>{% endif %}
-  <span class="muted">Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
-  {% if page.has_next %}<a href="?page={{ page.next_page_number }}&{{ keepqs }}">Next</a>{% endif %}
+<div class="table-wrap">
+  <table class="fixed">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Time (server)</th>
+        <th>Device</th>
+        <th>SSID</th>
+        <th>BSSID</th>
+        <th class="r">RSSI</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for o in page.object_list %}
+      <tr>
+        <td><a href="/ui/observations/{{ o.id }}">{{ o.id }}</a></td>
+        <td>{{ o.server_ts|date:"M j, Y, g:i a" }}</td>
+        <td>{{ o.device.name }}</td>
+        <td>{{ o.ssid }}</td>
+        <td class="mono"><span class="pill">{{ o.bssid }}</span></td>
+        <td class="r">{{ o.rssi|default:"" }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6" class="empty">No results</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
 </div>
+
+<div class="pager">
+  {% if page.has_previous %}<a href="?page={{ page.previous_page_number }}&{{ keepqs }}">← Prev</a>{% endif %}
+  <span class="muted">Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+  {% if page.has_next %}<a href="?page={{ page.next_page_number }}&{{ keepqs }}">Next →</a>{% endif %}
+</div>
+
 {% endblock %}

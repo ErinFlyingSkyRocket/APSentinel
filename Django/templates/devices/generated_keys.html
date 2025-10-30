@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Generated Device Keypair</h2>
+
+<h3>Public Key (paste into Add Device)</h3>
+<pre><code>{{ public_pem }}</code></pre>
+
+<h3>Private Key (paste into ESP32; NOT stored)</h3>
+<pre><code>{{ private_pem }}</code></pre>
+
+<a href="/ui/devices/add">Back to Add Device</a>
+{% endblock %}

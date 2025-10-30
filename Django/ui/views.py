@@ -4,8 +4,15 @@ from django.http import HttpResponse
 from devices.models import Device
 from evidence.models import Observation
 from django.utils.dateparse import parse_date
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import redirect
+from .forms import DeviceForm
+from django.db.models import Q
+
+
 import csv
 
+@login_required
 def dashboard(request):
     last = Observation.objects.select_related("device").order_by("-id").first()
     counts = {
@@ -14,11 +21,12 @@ def dashboard(request):
     }
     return render(request, "ui/dashboard.html", {"last": last, "counts": counts})
 
+@login_required
 def observations(request):
     qs = Observation.objects.select_related("device").order_by("-id")
     q = request.GET.get("q") or ""
     if q:
-        qs = qs.filter(ssid__icontains=q) | qs.filter(bssid__icontains=q)
+        qs = qs.filter(Q(ssid__icontains=q) | Q(bssid__icontains=q))
     device_id = request.GET.get("device")
     if device_id:
         qs = qs.filter(device_id=device_id)
@@ -49,6 +57,7 @@ def observations(request):
     devices = Device.objects.order_by("name").only("id","name")
     return render(request, "ui/observations.html", {"page": page, "devices": devices, "keepqs": keepqs})
 
+@login_required
 def observation_detail(request, pk: int):
     o = get_object_or_404(Observation.objects.select_related("device"), pk=pk)
     tohex = lambda b: (b if isinstance(b,(bytes,bytearray)) else bytes(b)).hex() if b else None
@@ -60,5 +69,17 @@ def observation_detail(request, pk: int):
     }
     return render(request, "ui/observation_detail.html", ctx)
 
+@login_required
 def devices_view(request):
     return render(request, "ui/devices.html", {"devices": Device.objects.order_by("name")})
+
+@login_required
+def add_device(request):
+    if request.method == "POST":
+        form = DeviceForm(request.POST)
+        if form.is_valid():
+            form.save()
+            return redirect("/ui/devices")
+    else:
+        form = DeviceForm()
+    return render(request, "ui/add_device.html", {"form": form})

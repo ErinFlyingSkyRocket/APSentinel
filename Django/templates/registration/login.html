@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Login · Apsentinel</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  {% load static %}
+  <link rel="stylesheet" href="{% static 'css/style.css' %}">
+</head>
+<body>
+  <main style="display:grid;place-items:center;height:100vh;">
+    <form method="post" style="max-width:320px;width:100%;">
+      {% csrf_token %}
+      <h2 style="text-align:center;margin-bottom:16px;">Sign in</h2>
+      {{ form.non_field_errors }}
+      <label>Username</label>{{ form.username }}
+      <label>Password</label>{{ form.password }}
+      <button type="submit" style="width:100%;margin-top:8px;">Login</button>
+      <p style="text-align:center;margin-top:8px;">
+        <a href="/">Back to site</a>
+      </p>
+    </form>
+  </main>
+</body>
+</html>

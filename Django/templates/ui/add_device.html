@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Register Device</h2>
+<form method="post" style="max-width:720px">{% csrf_token %}
+  {{ form.non_field_errors }}
+  <div>
+    <label>Name</label><br/>
+    {{ form.name.errors }}{{ form.name }}
+  </div>
+  <div style="margin-top:10px">
+    <label>Public Key (PEM)</label><br/>
+    {{ form.pubkey_pem.errors }}{{ form.pubkey_pem }}
+  </div>
+  <div style="margin-top:10px">
+    <label>{{ form.is_active }} Active</label>
+  </div>
+  <div style="margin-top:14px">
+    <button type="submit">Save</button>
+    <a href="/ui/devices" style="margin-left:8px">Cancel</a>
+  </div>
+</form>
+{% endblock %}

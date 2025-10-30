@@ -71,6 +71,9 @@ def ingest_observation(request):
     prev_chain_hash = bytes(last) if last is not None else None
     chain_hash = compute_chain_hash(prev_chain_hash, payload_hash, server_ts)
 
+    # Mark device as seen now (reactivate if needed)
+    device.mark_seen_now()
+    
     # Store observation
     with transaction.atomic():
         obs = Observation.objects.create(

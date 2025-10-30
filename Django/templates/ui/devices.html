@@ -1,15 +1,38 @@
+{# templates/ui/devices.html #}
 {% extends "base.html" %}
 {% block content %}
 <h2>Devices</h2>
+
+<p><a href="{% url 'add_device' %}" class="btn">Add Device</a></p>
+
 <table>
-  <thead><tr><th>Name</th><th>Active</th><th>Enrolled</th></tr></thead>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Active</th>
+      <th>Enrolled</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
   <tbody>
   {% for d in devices %}
     <tr>
       <td>{{ d.name }}</td>
-      <td>{{ d.is_active }}</td>
+      <td>{{ d.is_active|yesno:"True,False" }}</td>
       <td>{{ d.enrolled_at }}</td>
+      <td>
+        <form method="post" action="{% url 'toggle_device' d.id %}" style="display:inline;">
+          {% csrf_token %}
+          <button type="submit">Toggle</button>
+        </form>
+        <form method="post" action="{% url 'delete_device' d.id %}" style="display:inline;" onsubmit="return confirm('Delete this device?');">
+          {% csrf_token %}
+          <button type="submit">Delete</button>
+        </form>
+      </td>
     </tr>
+  {% empty %}
+    <tr><td colspan="4" style="text-align:center;">No devices yet.</td></tr>
   {% endfor %}
   </tbody>
 </table>
