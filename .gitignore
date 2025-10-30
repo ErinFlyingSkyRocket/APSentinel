@@ -1,0 +1,67 @@
+# ============================================
+# APSENTINEL DJANGO PROJECT - GITIGNORE
+# ============================================
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Django / Environment files
+.env
+*.pem
+db.sqlite3
+
+# Local test scripts and keygens
+keygen_once.py
+sign_and_post_test.py
+
+# IDE / Editor settings
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+*.orig
+
+# Coverage and test reports
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.pytest_cache/
+
+# Static and media (if generated)
+staticfiles/
+media/
+
+# Compiled files (if any)
+build/
+dist/
+*.egg-info/
+
+# ESP32 / PlatformIO
+ESP32/.pio/
+ESP32/.vscode/
+ESP32/build/
+ESP32/.clangd/
+ESP32/.cache/
+
+# ESP32 secrets
+ESP32/src/config.h
+ESP32/private_key.pem
+ESP32/certs/
