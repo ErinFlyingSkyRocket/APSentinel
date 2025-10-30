@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Devices</h2>
+<table>
+  <thead><tr><th>Name</th><th>Active</th><th>Enrolled</th></tr></thead>
+  <tbody>
+  {% for d in devices %}
+    <tr>
+      <td>{{ d.name }}</td>
+      <td>{{ d.is_active }}</td>
+      <td>{{ d.enrolled_at }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

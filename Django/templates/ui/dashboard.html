@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Dashboard</h2>
+<div class="cards">
+  <div class="card"><div class="muted">Observations</div><div style="font-size:28px">{{ counts.observations }}</div></div>
+  <div class="card"><div class="muted">Devices (active)</div><div style="font-size:28px">{{ counts.active_devices }}</div></div>
+  <div class="card"><div class="muted">Last obs</div><div style="font-size:14px">{{ last.server_ts|default:"—" }}</div></div>
+  <div class="card"><div class="muted">Last SSID</div><div style="font-size:18px">{{ last.ssid|default:"—" }}</div></div>
+</div>
+{% endblock %}

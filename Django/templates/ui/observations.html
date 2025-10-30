@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Observations</h2>
+
+<form method="get" class="row">
+  <input type="text" name="q" placeholder="SSID or BSSID" value="{{ request.GET.q }}">
+  <select name="device">
+    <option value="">All devices</option>
+    {% for d in devices %}
+      <option value="{{ d.id }}" {% if request.GET.device == d.id|stringformat:"s" %}selected{% endif %}>{{ d.name }}</option>
+    {% endfor %}
+  </select>
+  <input type="date" name="since" value="{{ request.GET.since }}">
+  <input type="date" name="until" value="{{ request.GET.until }}">
+  <button type="submit">Filter</button>
+  <a href="/ui/observations">Reset</a>
+  <a href="?{{ request.GET.urlencode }}&export=csv" style="margin-left:auto">Export CSV</a>
+</form>
+
+<table>
+  <thead>
+    <tr><th>ID</th><th>Time (server)</th><th>Device</th><th>SSID</th><th>BSSID</th><th>RSSI</th></tr>
+  </thead>
+  <tbody>
+    {% for o in page.object_list %}
+    <tr>
+      <td><a href="/ui/observations/{{ o.id }}">{{ o.id }}</a></td>
+      <td>{{ o.server_ts }}</td>
+      <td>{{ o.device.name }}</td>
+      <td>{{ o.ssid }}</td>
+      <td><span class="pill">{{ o.bssid }}</span></td>
+      <td>{{ o.rssi|default:"" }}</td>
+    </tr>
+    {% empty %}
+    <tr><td colspan="6" class="muted">No results</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<div class="row">
+  {% if page.has_previous %}<a href="?page={{ page.previous_page_number }}&{{ keepqs }}">Prev</a>{% endif %}
+  <span class="muted">Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+  {% if page.has_next %}<a href="?page={{ page.next_page_number }}&{{ keepqs }}">Next</a>{% endif %}
+</div>
+{% endblock %}

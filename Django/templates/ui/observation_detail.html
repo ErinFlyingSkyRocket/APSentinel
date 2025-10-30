@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Observation #{{ o.id }}</h2>
+<table>
+  <tr><th>Device</th><td>{{ o.device.name }}</td></tr>
+  <tr><th>SSID</th><td>{{ o.ssid }}</td></tr>
+  <tr><th>BSSID</th><td>{{ o.bssid }}</td></tr>
+  <tr><th>RSSI</th><td>{{ o.rssi|default:"" }}</td></tr>
+  <tr><th>Sensor TS</th><td>{{ o.sensor_ts }}</td></tr>
+  <tr><th>Server TS</th><td>{{ o.server_ts }}</td></tr>
+  <tr><th>Payload Hash</th><td><code>{{ payload_hex }}</code></td></tr>
+  <tr><th>Prev Chain Hash</th><td><code>{{ prev_hex|default:"—" }}</code></td></tr>
+  <tr><th>Chain Hash</th><td><code>{{ chain_hex }}</code></td></tr>
+</table>
+{% endblock %}
