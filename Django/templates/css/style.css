@@ -113,3 +113,133 @@ table.fixed th:nth-child(6) { width: 90px; }
 .empty { color: var(--muted); padding: 16px 0; }
 .pager { display: flex; gap: 12px; align-items: center; margin-top: 10px; }
 .pager a { padding: 4px 8px; border: 1px solid var(--border); border-radius: 8px; }
+
+/* ---- Devices Page Polish ---- */
+
+.device-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 8px 0 16px;
+}
+
+.device-header h2 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.device-header a.btn {
+  background: #294a94;
+  border: 1px solid #3357a6;
+  color: #fff;
+  padding: 8px 14px;
+  border-radius: 10px;
+  text-decoration: none;
+  font-weight: 500;
+}
+.device-header a.btn:hover {
+  background: #3158b1;
+}
+
+/* Card container for table */
+.device-card {
+  background: #111624;
+  border: 1px solid #1f2433;
+  border-radius: 12px;
+  padding: 10px;
+  overflow-x: auto;
+}
+
+/* Devices table */
+table.devices {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  margin-top: 8px;
+}
+
+table.devices th,
+table.devices td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #1f2433;
+  text-align: left;
+  vertical-align: middle;
+}
+
+table.devices thead th {
+  color: #9aa3b2;
+  font-weight: 600;
+}
+
+table.devices tbody tr:hover {
+  background: #0e1422;
+}
+
+/* Handle long text gracefully */
+table.devices .ellipsis {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+table.devices td {
+  word-wrap: break-word;
+}
+
+/* Status badges */
+.badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.badge-up {
+  background: #113d2a;
+  color: #a7f3d0;
+  border: 1px solid #1e5b3e;
+}
+.badge-down {
+  background: #3b0f12;
+  color: #fecaca;
+  border: 1px solid #5c1b1f;
+}
+
+/* Optional description cell wrapping */
+table.devices td.description {
+  max-width: 260px;
+  white-space: pre-line;
+  word-wrap: break-word;
+}
+
+/* Responsive improvement */
+@media (max-width: 800px) {
+  table.devices th:nth-child(3),
+  table.devices td:nth-child(3),
+  table.devices th:nth-child(4),
+  table.devices td:nth-child(4) {
+    display: none; /* hide Last Seen and Location for smaller screens */
+  }
+}
+
+/* --- Compact truncation for name/location --- */
+.ellipsis {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: help;
+}
+.ch-8 { max-width: 8ch; }
+.ch-16 { max-width: 16ch; }
+
+/* --- Description cell (multi-line but capped) --- */
+.description-box {
+  max-width: 64ch;              /* limit container width */
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;        /* show up to 3 lines */
+  -webkit-box-orient: vertical;
+  white-space: normal;          /* allow wrapping */
+  word-wrap: break-word;
+  line-height: 1.4;
+  cursor: help;                 /* show tooltip */
+}

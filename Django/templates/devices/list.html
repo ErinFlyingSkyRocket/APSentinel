@@ -1,38 +1,69 @@
 {% extends "base.html" %}
 {% block content %}
-<h2>Device List</h2>
 
-<p><a href="{% url 'add_device' %}">➕ Add New Device</a></p>
+<meta http-equiv="refresh" content="60">
 
-<table border="1" cellspacing="0" cellpadding="6">
-  <thead>
-    <tr>
-      <th>ID</th>
-      <th>Name</th>
-      <th>Active</th>
-      <th>Enrolled</th>
-      <th>Actions</th>
-    </tr>
-  </thead>
-  <tbody>
-  {% for d in devices %}
-    <tr>
-      <td>{{ d.id }}</td>
-      <td>{{ d.name }}</td>
-      <td>{% if d.is_active %}✅ Active{% else %}❌ Inactive{% endif %}</td>
-      <td>{{ d.enrolled_at }}</td>
-      <td>
-        <form method="post" action="/ui/devices/{{ d.id }}/toggle" style="display:inline;">{% csrf_token %}
-          <button type="submit">Toggle</button>
-        </form>
-        <form method="post" action="/ui/devices/{{ d.id }}/delete" style="display:inline;" onsubmit="return confirm('Delete this device?');">{% csrf_token %}
-          <button type="submit">Delete</button>
-        </form>
-      </td>
-    </tr>
-  {% empty %}
-    <tr><td colspan="5" align="center">No devices yet.</td></tr>
-  {% endfor %}
-  </tbody>
-</table>
+<div class="device-header">
+  <h2>Devices</h2>
+  <a href="{% url 'device_add' %}" class="btn">+ Add Device</a>
+</div>
+
+<div class="device-card">
+  <table class="devices">
+    <thead>
+      <tr>
+        <th style="width:15%">Name</th>
+        <th style="width:15%">Last seen</th>
+        <th style="width:10%">Status</th>
+        <th style="width:15%">Location</th>
+        <th style="width:25%">Description</th>
+        <th style="width:20%">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for d in devices %}
+        <tr>
+          <td class="ellipsis ch-8" title="{{ d.name }}">
+            {{ d.name|truncatechars:8 }}
+          </td>
+          <td>
+            {% if d.last_seen %}
+              {{ d.last_seen|timesince }} ago
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            {% if d.is_online %}
+              <span class="badge badge-up">Up</span>
+            {% else %}
+              <span class="badge badge-down">Down</span>
+            {% endif %}
+          </td>
+          <td class="ellipsis ch-8" title="{{ d.location }}">
+            {{ d.location|truncatechars:8|default:"—" }}
+          </td>
+          <td class="description-box" title="{{ d.description }}">
+            {{ d.description|default:"—" }}
+          </td>
+          <td>
+            <form method="post" action="{% url 'device_toggle' d.id %}" style="display:inline;margin-right:6px;">
+              {% csrf_token %}
+              <button type="submit" style="padding:4px 8px;border-radius:8px;border:1px solid #2a3550;background:#18223a;color:#e6e9ef;cursor:pointer;">
+                Toggle
+              </button>
+            </form>
+            <form method="post" action="{% url 'device_delete' d.id %}" style="display:inline;" onsubmit="return confirm('Delete {{ d.name }}?');">
+              {% csrf_token %}
+              <button type="submit" style="padding:4px 8px;border-radius:8px;border:1px solid #8a2b30;background:#6b1c20;color:#fff;cursor:pointer;">
+                Delete
+              </button>
+            </form>
+          </td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="6" style="text-align:center;opacity:.7;">No devices yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
 {% endblock %}

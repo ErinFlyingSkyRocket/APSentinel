@@ -1,9 +1,12 @@
-from django.shortcuts import render, redirect, get_object_or_404
-from django.views.decorators.http import require_http_methods
+# devices/views.py
+from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db import IntegrityError
-from evidence.models import Observation
+from django.db.models import ProtectedError
+from django.shortcuts import render, redirect, get_object_or_404
+from django.views.decorators.http import require_http_methods
 
+from evidence.models import Observation
 from .models import Device
 
 # Crypto for key generation (ECDSA P-256)
@@ -11,6 +14,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives import serialization
 
 
+@login_required
 def devices_view(request):
     """
     Simple read-only list of devices.
@@ -20,12 +24,14 @@ def devices_view(request):
     return render(request, "devices/list.html", {"devices": devices})
 
 
+@login_required
 @require_http_methods(["GET", "POST"])
 def add_device_view(request):
     """
     Single page that supports:
       - Generate Keypair (action=gen) -> shows keys on same page and pre-fills public key field
-      - Add Device      (action=add) -> creates device with provided name/public key/active flag
+      - Add Device      (action=add) -> creates device with provided name/public key
+        NOTE: We do NOT read 'is_active' from POST; new devices default to True.
     Template: templates/devices/add_device.html
     """
     ctx = {
@@ -33,6 +39,9 @@ def add_device_view(request):
         "private_pem": "",
         "generated": False,
     }
+
+    # Determine available fields on Device to avoid passing unknown kwargs
+    device_field_names = {f.name for f in Device._meta.get_fields()}
 
     if request.method == "POST":
         action = (request.POST.get("action") or "").strip()
@@ -62,9 +71,8 @@ def add_device_view(request):
         elif action == "add":
             name = (request.POST.get("name") or "").strip()
             pubkey_pem = (request.POST.get("pubkey_pem") or "").strip()
-            is_active = bool(request.POST.get("is_active"))
 
-            # Optional fields—only used if your Device model has them
+            # Optional fields—only used if your Device model defines them
             location = (request.POST.get("location") or "").strip()
             description = (request.POST.get("description") or "").strip()
 
@@ -73,14 +81,18 @@ def add_device_view(request):
                 return redirect("/ui/devices/add")
 
             try:
-                Device.objects.create(
-                    name=name,
-                    pubkey_pem=pubkey_pem,
-                    is_active=is_active,
-                    # keep these only if your model has them (null=True recommended):
-                    location=location if hasattr(Device, "location") else None,
-                    description=description if hasattr(Device, "description") else None,
-                )
+                create_kwargs = {
+                    "name": name,
+                    "pubkey_pem": pubkey_pem,
+                    # Do NOT read is_active from POST; rely on model default=True
+                    "is_active": True,
+                }
+                if "location" in device_field_names:
+                    create_kwargs["location"] = location or None
+                if "description" in device_field_names:
+                    create_kwargs["description"] = description or None
+
+                Device.objects.create(**create_kwargs)
                 messages.success(request, f"Device '{name}' added.")
             except IntegrityError:
                 messages.error(request, f"Device name '{name}' already exists.")
@@ -96,6 +108,7 @@ def add_device_view(request):
     return render(request, "devices/add_device.html", ctx)
 
 
+@login_required
 @require_http_methods(["POST"])
 def delete_device_view(request, pk: int):
     """
@@ -115,6 +128,7 @@ def delete_device_view(request, pk: int):
     return redirect("/ui/devices")
 
 
+@login_required
 @require_http_methods(["POST"])
 def toggle_active_view(request, pk: int):
     """
