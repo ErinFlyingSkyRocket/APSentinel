@@ -1,0 +1,66 @@
+{% extends "admin/base.html" %}
+{% load static %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+  /* === Move messages to bottom === */
+  #container {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+  }
+
+  #content {
+    flex: 1 0 auto; /* push content up */
+  }
+
+  /* Move message list visually below the page */
+  #container .messagelist {
+    order: 2;
+    margin-top: 16px;
+    max-height: 400px;
+    overflow-y: auto;
+    border: 1px solid #2b3a4a;
+    border-radius: 8px;
+    scrollbar-width: thin;
+  }
+  #container .messagelist li {
+    margin: 4px 8px;
+    padding: 6px 8px;
+    font-size: 13px;
+  }
+  #container .messagelist .success {
+    background: #0f2e14 !important;
+    border: 1px solid #1e5b2e !important;
+    color: #d9fdd3 !important;
+  }
+  #container .messagelist:hover {
+    box-shadow: 0 0 4px #1e5b2e;
+  }
+</style>
+{% endblock %}
+
+{% block extrahead %}
+{{ block.super }}
+<script>
+(function () {
+  // Keep only newest 20 messages; auto-dismiss after 4s
+  function trimMessages(limit = 20) {
+    const items = Array.from(document.querySelectorAll('#container ul.messagelist li'));
+    if (!items.length) return;
+
+    items.slice(limit).forEach(el => el.remove());
+    items.slice(0, limit).forEach(li => {
+      let timer = setTimeout(() => li.remove(), 4000);
+      li.addEventListener('mouseenter', () => clearTimeout(timer));
+    });
+  }
+  document.addEventListener('DOMContentLoaded', () => trimMessages(20));
+})();
+</script>
+{% endblock %}
+
+{% block branding %}
+<h1 id="site-name"><a href="{% url 'admin:index' %}">Apsentinel Admin</a></h1>
+{% endblock %}
