@@ -141,15 +141,3 @@ def delete_device_view(request, pk: int):
         )
     return redirect("/ui/devices")
 
-
-@login_required
-@require_http_methods(["POST"])
-def toggle_active_view(request, pk: int):
-    """
-    Flip is_active True/False (simple toggle) from the devices list page.
-    """
-    dev = get_object_or_404(Device, pk=pk)
-    dev.is_active = not dev.is_active
-    dev.save(update_fields=["is_active"])
-    messages.success(request, f"Device '{dev.name}' active = {dev.is_active}.")
-    return redirect("/ui/devices")

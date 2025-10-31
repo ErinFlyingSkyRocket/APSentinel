@@ -6,7 +6,7 @@ from .views import health, ingest_observation
 
 # UI views
 from ui.views import dashboard, observations, observation_detail
-from devices.views import devices_view, add_device_view, delete_device_view, toggle_active_view, edit_device_view
+from devices.views import devices_view, add_device_view, delete_device_view, edit_device_view
 
 
 from django.contrib.auth import views as auth_views
@@ -31,7 +31,6 @@ urlpatterns = [
     path("ui/devices/add", add_device_view, name="device_add"),
     path("ui/devices/<int:pk>/delete", delete_device_view, name="device_delete"),
     path("ui/devices/<int:pk>/edit", edit_device_view, name="edit_device"),
-    path("ui/devices/<int:pk>/toggle", toggle_active_view, name="device_toggle"),
 
     # Auth
     path("accounts/login/",  auth_views.LoginView.as_view(template_name="registration/login.html"), name="login"),
