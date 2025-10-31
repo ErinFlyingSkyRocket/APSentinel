@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block content %}
+  <h2 style="margin:8px 0 14px;">
+    {% if mode == 'edit' %}Edit Whitelist{% else %}Add Whitelist{% endif %}
+  </h2>
+
+  <form method="post" class="form">
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+    <div class="row">
+      <div style="flex:1">
+        <label>SSID</label>
+        {{ form.ssid }}
+        {{ form.ssid.errors }}
+      </div>
+      <div style="flex:1">
+        <label>BSSID (optional)</label>
+        {{ form.bssid }}
+        {{ form.bssid.errors }}
+      </div>
+    </div>
+
+    <div class="row">
+      <div style="flex:1">
+        <label>Vendor OUI</label>
+        {{ form.vendor_oui }}
+        {{ form.vendor_oui.errors }}
+      </div>
+      <div style="flex:1">
+        <label>Expected Security</label>
+        {{ form.expected_security }}
+        {{ form.expected_security.errors }}
+      </div>
+    </div>
+
+    <div class="row">
+      <div style="flex:1">
+        <label>Allowed Bands</label>
+        {{ form.allowed_bands }}
+        {{ form.allowed_bands.errors }}
+      </div>
+      <div style="flex:1">
+        <label>Allowed Channels</label>
+        {{ form.allowed_channels }}
+        {{ form.allowed_channels.errors }}
+      </div>
+    </div>
+
+    <div>
+      <label>Notes</label>
+      {{ form.notes }}
+      {{ form.notes.errors }}
+    </div>
+
+    <div>
+      <label style="display:flex; align-items:center; gap:8px;">
+        {{ form.active }} Active
+      </label>
+      {{ form.active.errors }}
+    </div>
+
+    <div style="display:flex; gap:8px;">
+      <button type="submit">{% if mode == 'edit' %}Save Changes{% else %}Create{% endif %}</button>
+      <a class="btn" href="/ui/whitelist">Cancel</a>
+    </div>
+  </form>
+{% endblock %}

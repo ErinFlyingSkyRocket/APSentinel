@@ -6,36 +6,48 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   {% load static %}
   <link rel="stylesheet" href="{% static 'css/style.css' %}">
+  {% block extrastyle %}{% endblock extrastyle %}
 </head>
 <body>
   <header>
     <nav>
-      <a href="/">Dashboard</a>
-      <a href="/ui/observations">Observations</a>
-      <a href="/ui/devices">Devices</a>
+      <a href="/" class="{% if request.path == '/' %}active{% endif %}">Dashboard</a>
+      <a href="/ui/observations" class="{% if request.path|slice:":16" == '/ui/observations' %}active{% endif %}">Observations</a>
+      <a href="/ui/devices" class="{% if request.path|slice:":11" == '/ui/devices' %}active{% endif %}">Devices</a>
+      <a href="/ui/whitelist" class="{% if request.path|slice:":13" == '/ui/whitelist' %}active{% endif %}">Whitelist</a>
+
+      <span class="spacer"></span>
 
       {% if request.user.is_authenticated %}
         <span class="muted">Hi, {{ request.user.username }}</span>
         <!-- Secure logout form -->
         <form action="/accounts/logout/" method="post" style="display:inline;">
           {% csrf_token %}
-          <button type="submit"
-                  style="background:none;border:none;color:#8ab4f8;cursor:pointer;padding:0;">
-            Logout
-          </button>
+          <button type="submit" class="linklike">Logout</button>
         </form>
       {% else %}
-        <a href="/accounts/login/">Login</a>
+        <a href="/accounts/login/" class="{% if request.path == '/accounts/login/' %}active{% endif %}">Login</a>
       {% endif %}
     </nav>
   </header>
 
+  <!-- Flash messages -->
+  {% if messages %}
+    <div class="messages">
+      {% for message in messages %}
+        <div class="msg {{ message.tags }}">{{ message }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
   <main>
-    {% block content %}{% endblock %}
+    {% block content %}{% endblock content %}
   </main>
 
   <footer>
     &copy; {{ now|date:"Y" }} Apsentinel · Network Forensics Framework
   </footer>
+
+  {% block scripts %}{% endblock scripts %}
 </body>
 </html>
