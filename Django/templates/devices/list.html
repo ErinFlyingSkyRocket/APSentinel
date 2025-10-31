@@ -23,14 +23,19 @@
     <tbody>
       {% for d in devices %}
         <tr>
+          <!-- Name -->
           <td class="ellipsis ch-8" title="{{ d.name }}">
             {{ d.name|truncatechars:8 }}
           </td>
+
+          <!-- Last seen -->
           <td>
             {% if d.last_seen %}
               {{ d.last_seen|timesince }} ago
             {% else %}—{% endif %}
           </td>
+
+          <!-- Status -->
           <td>
             {% if d.is_online %}
               <span class="badge badge-up">Up</span>
@@ -38,22 +43,38 @@
               <span class="badge badge-down">Down</span>
             {% endif %}
           </td>
+
+          <!-- Location -->
           <td class="ellipsis ch-8" title="{{ d.location }}">
             {{ d.location|truncatechars:8|default:"—" }}
           </td>
+
+          <!-- Description -->
           <td class="description-box" title="{{ d.description }}">
             {{ d.description|default:"—" }}
           </td>
-          <td>
+
+          <!-- Actions -->
+          <td style="white-space: nowrap;">
+            <a href="{% url 'edit_device' d.id %}" 
+               class="btn-link"
+               style="margin-right:6px;padding:4px 8px;border-radius:8px;border:1px solid #3357a6;background:#0e1422;color:#8ab4f8;text-decoration:none;">
+               ✏️ Edit
+            </a>
+
             <form method="post" action="{% url 'device_toggle' d.id %}" style="display:inline;margin-right:6px;">
               {% csrf_token %}
-              <button type="submit" style="padding:4px 8px;border-radius:8px;border:1px solid #2a3550;background:#18223a;color:#e6e9ef;cursor:pointer;">
+              <button type="submit"
+                style="padding:4px 8px;border-radius:8px;border:1px solid #2a3550;background:#18223a;color:#e6e9ef;cursor:pointer;">
                 Toggle
               </button>
             </form>
-            <form method="post" action="{% url 'device_delete' d.id %}" style="display:inline;" onsubmit="return confirm('Delete {{ d.name }}?');">
+
+            <form method="post" action="{% url 'device_delete' d.id %}" style="display:inline;" 
+                  onsubmit="return confirm('Delete {{ d.name }}?');">
               {% csrf_token %}
-              <button type="submit" style="padding:4px 8px;border-radius:8px;border:1px solid #8a2b30;background:#6b1c20;color:#fff;cursor:pointer;">
+              <button type="submit"
+                style="padding:4px 8px;border-radius:8px;border:1px solid #8a2b30;background:#6b1c20;color:#fff;cursor:pointer;">
                 Delete
               </button>
             </form>

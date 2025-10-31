@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="device-header">
+  <h2>Edit Device</h2>
+  <a href="/ui/devices" class="btn">← Back</a>
+</div>
+
+<div class="device-card">
+  <form method="post">
+    {% csrf_token %}
+    <label for="name">Device Name</label>
+    <input type="text" id="name" name="name" value="{{ device.name }}" required>
+
+    <label for="location">Location</label>
+    <input type="text" id="location" name="location" value="{{ device.location|default_if_none:'' }}">
+
+    <label for="description">Description</label>
+    <textarea id="description" name="description" rows="3">{{ device.description|default_if_none:'' }}</textarea>
+
+    <div style="margin-top:12px;display:flex;gap:10px;">
+      <button type="submit">💾 Save</button>
+      <a href="/ui/devices" class="btn-link">Cancel</a>
+    </div>
+  </form>
+</div>
+
+{% endblock %}

@@ -107,6 +107,20 @@ def add_device_view(request):
     # GET
     return render(request, "devices/add_device.html", ctx)
 
+@login_required
+@require_http_methods(["GET", "POST"])
+def edit_device_view(request, pk):
+    device = get_object_or_404(Device, pk=pk)
+
+    if request.method == "POST":
+        device.name = request.POST.get("name", device.name)
+        device.location = request.POST.get("location", device.location)
+        device.description = request.POST.get("description", device.description)
+        device.save()
+        messages.success(request, f"Device '{device.name}' updated successfully.")
+        return redirect("/ui/devices")
+
+    return render(request, "devices/edit.html", {"device": device})
 
 @login_required
 @require_http_methods(["POST"])
