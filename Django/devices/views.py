@@ -6,7 +6,7 @@ from django.db.models import ProtectedError
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views.decorators.http import require_http_methods
 
-from evidence.models import Observation
+from evidence.models import AccessPointObservation  # ✅ updated
 from .models import Device
 
 # Crypto for key generation (ECDSA P-256)
@@ -107,6 +107,7 @@ def add_device_view(request):
     # GET
     return render(request, "devices/add_device.html", ctx)
 
+
 @login_required
 @require_http_methods(["GET", "POST"])
 def edit_device_view(request, pk):
@@ -122,6 +123,7 @@ def edit_device_view(request, pk):
 
     return render(request, "devices/edit.html", {"device": device})
 
+
 @login_required
 @require_http_methods(["POST"])
 def delete_device_view(request, pk: int):
@@ -134,10 +136,14 @@ def delete_device_view(request, pk: int):
         dev.delete()
         messages.success(request, f"Device '{dev.name}' deleted.")
     except ProtectedError:
-        count = Observation.objects.filter(device=dev).count()
+        # If AccessPointObservation has a FK to Device (recommended), count them:
+        try:
+            obs_count = AccessPointObservation.objects.filter(device=dev).count()
+        except Exception:
+            # Fallback if FK not present yet
+            obs_count = 0
         messages.error(
             request,
-            f"Cannot delete '{dev.name}': {count} observation(s) still reference this device."
+            f"Cannot delete '{dev.name}': {obs_count} observation(s) still reference this device."
         )
     return redirect("/ui/devices")
-

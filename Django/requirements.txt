@@ -6,6 +6,7 @@ cryptography==46.0.3
 Django==5.2.7
 dotenv==0.9.9
 idna==3.11
+psycopg2==2.9.11
 pycparser==2.23
 python-dotenv==1.2.1
 requests==2.32.5

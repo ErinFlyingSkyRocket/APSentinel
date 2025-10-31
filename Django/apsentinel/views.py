@@ -1,14 +1,17 @@
+# apsentinel/views.py
 import json
 import base64
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
+from typing import Optional
+
 from django.http import JsonResponse, HttpResponseBadRequest, HttpResponseForbidden
 from django.views.decorators.csrf import csrf_exempt
 from django.db import transaction
 from django.utils import timezone as dj_timezone
 
 from devices.models import Device
-from evidence.models import Observation
+from evidence.models import AccessPointObservation  # UPDATED MODEL
 from .crypto_utils import verify_ecdsa_p256_sha256
 from .hashchain import compute_payload_hash, compute_chain_hash
 
@@ -17,6 +20,48 @@ logger = logging.getLogger("apsentinel")
 
 def health(request):
     return JsonResponse({"status": "ok"})
+
+
+def _parse_iso_dt(s: Optional[str]) -> Optional[datetime]:
+    """
+    Parse ISO8601 strings like '2025-10-31T07:05:12Z' or with timezone.
+    Returns aware datetime in UTC if possible, else None.
+    """
+    if not s:
+        return None
+    try:
+        # Accept trailing 'Z'
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        dt = datetime.fromisoformat(s)
+        # Ensure aware
+        if dt.tzinfo is None:
+            return dj_timezone.make_aware(dt, dj_timezone.utc)
+        return dt.astimezone(dj_timezone.utc)
+    except Exception:
+        return None
+
+
+def _as_bytes(x):
+    """
+    Normalize DB-returned binary/hex to bytes for chain hashing.
+    - If already bytes -> pass through
+    - If memoryview -> convert to bytes
+    - If hex string length 64 -> convert from hex
+    - Else return as-is (may be None)
+    """
+    if x is None:
+        return None
+    if isinstance(x, bytes):
+        return x
+    if isinstance(x, memoryview):
+        return bytes(x)
+    if isinstance(x, str) and len(x) in (64, 40):  # sha256/sha1 hex len
+        try:
+            return bytes.fromhex(x)
+        except ValueError:
+            return x
+    return x
 
 
 @csrf_exempt
@@ -29,6 +74,7 @@ def ingest_observation(request):
     if request.method != "POST":
         return HttpResponseBadRequest("POST required")
 
+    # --- Parse JSON ---
     try:
         data = json.loads(request.body.decode("utf-8"))
     except Exception:
@@ -43,7 +89,7 @@ def ingest_observation(request):
     device_name = data["device_name"]
     signature_b64 = data["device_signature"]
 
-    # --- Find device (by name only, no active check) ---
+    # --- Find device ---
     try:
         device = Device.objects.get(name=device_name)
     except Device.DoesNotExist:
@@ -75,30 +121,45 @@ def ingest_observation(request):
     device.save(update_fields=fields_to_update)
 
     # --- Compute payload + chain hash ---
-    payload_hash = compute_payload_hash(canonical)
-    server_ts = now.isoformat()
+    payload_hash = compute_payload_hash(canonical)  # bytes or hex (your helper decides)
+    server_ts = now  # store as datetime; stringify only for hashing input
 
+    # Get previous chain hash for this device
     last = (
-        Observation.objects.filter(device=device)
+        AccessPointObservation.objects.filter(device=device)
         .order_by("-id")
         .values_list("chain_hash", flat=True)
         .first()
     )
-    prev_chain_hash = bytes(last) if last is not None else None
-    chain_hash = compute_chain_hash(prev_chain_hash, payload_hash, server_ts)
+    prev_chain_hash = _as_bytes(last)
 
-    # --- Save observation atomically ---
+    # If your compute_chain_hash expects strings, pass hex/iso strings accordingly.
+    # Here we pass bytes for previous hash & payload hash, and ISO string for server_ts:
+    chain_hash = compute_chain_hash(prev_chain_hash, payload_hash, server_ts.isoformat())
+
+    # --- Parse sensor_ts ---
+    sensor_ts = _parse_iso_dt(data.get("sensor_ts"))
+
+    # --- Persist atomically ---
     with transaction.atomic():
-        obs = Observation.objects.create(
+        obs = AccessPointObservation.objects.create(
             device=device,
             ssid=data["ssid"],
             bssid=data["bssid"],
-            rsn=data.get("rsn"),
+            # map RSN to the new model's 'security' field
+            security=data.get("rsn"),
             rssi=data.get("rssi"),
-            sensor_ts=data["sensor_ts"],
-            payload_hash=payload_hash,
-            prev_chain_hash=prev_chain_hash,
-            chain_hash=chain_hash,
+            band=data.get("band"),
+            channel=data.get("channel"),
+            vendor_oui=data.get("vendor_oui"),
+            source_device=device_name,
+
+            # timestamps & chain
+            sensor_ts=sensor_ts,
+            server_ts=server_ts,
+            payload_hash=_as_bytes(payload_hash),
+            prev_chain_hash=_as_bytes(prev_chain_hash),
+            chain_hash=_as_bytes(chain_hash),
             device_sig=base64.b64decode(signature_b64),
         )
 
@@ -110,8 +171,8 @@ def ingest_observation(request):
         obs.ssid,
         obs.bssid,
         obs.rssi,
-        obs.sensor_ts,
-        server_ts,
+        data.get("sensor_ts"),
+        server_ts.isoformat(),
     )
 
     return JsonResponse({"status": "ok", "obs_id": obs.id})
