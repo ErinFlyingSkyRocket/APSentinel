@@ -7,8 +7,12 @@ class Device(models.Model):
     pubkey_pem = models.TextField()  # public key only (PEM)
     enrolled_at = models.DateTimeField(auto_now_add=True)
 
-    # Default to down until first valid packet arrives
-    is_active = models.BooleanField(default=False)
+    # Admin-controlled: whether this device/sensor is allowed to be used
+    # in whitelist/matching logic. Different from 'is_online'.
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Uncheck to disable this device's rules / ingestion without deleting it."
+    )
 
     # Optional metadata (nullable = migration-friendly)
     description = models.TextField(blank=True, null=True)
@@ -22,7 +26,10 @@ class Device(models.Model):
 
     @property
     def is_online(self) -> bool:
-        """Derived ONLINE status = last_seen within 5 minutes."""
+        """
+        Derived ONLINE status = last_seen within 5 minutes.
+        This is runtime/telemetry, not the admin 'is_active'.
+        """
         if not self.last_seen:
             return False
         return timezone.now() - self.last_seen <= timedelta(minutes=5)

@@ -1,77 +1,80 @@
 {% extends "base.html" %}
 {% block content %}
-  <div class="whitelist-header">
+  <div class="whitelist-header" style="display:flex; align-items:center; justify-content:space-between; gap:1rem;">
     <h2>Whitelist</h2>
     <div class="actions">
-      <a class="btn" href="/ui/whitelist/add">Add</a>
+      <a class="btn" href="{% url 'whitelist_add' %}">Add group</a>
     </div>
   </div>
 
-  <form method="get" class="filterbar" style="grid-template-columns: 1.2fr 0.8fr auto;">
-    <div class="field">
-      <label>Search SSID</label>
-      <input type="text" name="q" value="{{ q|default:'' }}" placeholder="e.g. Hospital-WiFi">
+  {% if groups %}
+    <div class="table-wrap">
+      <table class="whitelist">
+        <thead>
+          <tr>
+            <th style="width:50px;">ID</th>
+            <th>Group / SSID</th>
+            <th>Location</th>
+            <th>Default Security</th>
+            <th>Strict</th>
+            <th>Status</th>
+            <th>Entries (BSSID / sec / ch)</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for g in groups %}
+            <tr>
+              <td>{{ g.id }}</td>
+              <td>
+                <strong>{{ g.name }}</strong><br>
+                <span class="muted">{{ g.ssid }}</span>
+              </td>
+              <td>{{ g.location|default:"—" }}</td>
+              <td>{{ g.default_security|default:"—" }}</td>
+              <td>
+                {% if g.strict %}
+                  <span class="badge-active">Yes</span>
+                {% else %}
+                  <span class="badge-inactive">No</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if g.is_active %}
+                  <span class="badge-active">Active</span>
+                {% else %}
+                  <span class="badge-inactive">Inactive</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if g.entries.all %}
+                  <ul style="margin:0; padding-left:1.2rem;">
+                    {% for e in g.entries.all %}
+                      <li>
+                        <span class="mono">{{ e.bssid|default:"ANY" }}</span>
+                        {% if e.security %} · {{ e.security }}{% endif %}
+                        {% if e.channel %} · ch {{ e.channel }}{% endif %}
+                        {% if not e.is_active %} · <span class="muted">inactive</span>{% endif %}
+                      </li>
+                    {% endfor %}
+                  </ul>
+                {% else %}
+                  <span class="muted">No entries</span>
+                {% endif %}
+              </td>
+              <td style="text-align:right; white-space:nowrap;">
+                <a href="{% url 'whitelist_edit' g.id %}">Edit</a>
+                <form action="{% url 'whitelist_delete' g.id %}" method="post" style="display:inline" onsubmit="return confirm('Delete this whitelist group and its entries?');">
+                  {% csrf_token %}
+                  <button class="btn-link" type="submit">Delete</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
-    <div class="field">
-      <label>Status</label>
-      <select name="active">
-        <option value="">Any</option>
-        <option value="1" {% if active == '1' %}selected{% endif %}>Active</option>
-        <option value="0" {% if active == '0' %}selected{% endif %}>Inactive</option>
-      </select>
-    </div>
-    <div class="field">
-      <label>&nbsp;</label>
-      <button type="submit">Filter</button>
-    </div>
-  </form>
-
-  <div class="table-wrap">
-    <table class="whitelist">
-      <thead>
-        <tr>
-          <th>ID</th>
-          <th>SSID</th>
-          <th>BSSID</th>
-          <th>Security</th>
-          <th>Status</th>
-          <th>Updated</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for w in page.object_list %}
-        <tr>
-          <td>{{ w.id }}</td>
-          <td>{{ w.ssid }}</td>
-          <td class="mono"><span class="pill">{{ w.bssid|default:"—" }}</span></td>
-          <td>{{ w.expected_security|default:"—" }}</td>
-          <td>
-            {% if w.active %}
-              <span class="badge-active">Active</span>
-            {% else %}
-              <span class="badge-inactive">Inactive</span>
-            {% endif %}
-          </td>
-          <td>{{ w.updated_at|date:"M j, Y, g:i a" }}</td>
-          <td style="text-align:right; white-space:nowrap;">
-            <a href="/ui/whitelist/{{ w.id }}/edit">Edit</a>
-            <form action="/ui/whitelist/{{ w.id }}/delete" method="post" style="display:inline" onsubmit="return confirm('Delete this entry?');">
-              {% csrf_token %}
-              <button class="btn-link" type="submit">Delete</button>
-            </form>
-          </td>
-        </tr>
-        {% empty %}
-        <tr><td colspan="7" class="empty">No whitelist entries yet.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  <div class="pager">
-    {% if page.has_previous %}<a href="?page={{ page.previous_page_number }}&q={{ q }}&active={{ active }}">Prev</a>{% endif %}
-    <span>Page {{ page.number }} / {{ page.paginator.num_pages }}</span>
-    {% if page.has_next %}<a href="?page={{ page.next_page_number }}&q={{ q }}&active={{ active }}">Next</a>{% endif %}
-  </div>
+  {% else %}
+    <p class="empty">No whitelist groups yet.</p>
+  {% endif %}
 {% endblock %}

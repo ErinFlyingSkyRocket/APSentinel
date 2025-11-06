@@ -1,10 +1,124 @@
 {% extends "base.html" %}
+
 {% block content %}
-<h2>Dashboard</h2>
-<div class="cards">
-  <div class="card"><div class="muted">Observations</div><div style="font-size:28px">{{ counts.observations }}</div></div>
-  <div class="card"><div class="muted">Devices (active)</div><div style="font-size:28px">{{ counts.active_devices }}</div></div>
-  <div class="card"><div class="muted">Last obs</div><div style="font-size:14px">{{ last.server_ts|default:"—" }}</div></div>
-  <div class="card"><div class="muted">Last SSID</div><div style="font-size:18px">{{ last.ssid|default:"—" }}</div></div>
-</div>
+  <h2 class="page-title">Dashboard</h2>
+
+  <div class="cards" style="display:flex; gap:1rem; flex-wrap:wrap;">
+    <div class="card">
+      <div class="muted">Observations</div>
+      <div style="font-size:28px">{{ counts.observations }}</div>
+    </div>
+    <div class="card">
+      <div class="muted">Devices (active)</div>
+      <div style="font-size:28px">{{ counts.active_devices }}</div>
+    </div>
+  </div>
+
+  <h3 style="margin-top:2rem;">
+    Current detected unwhitelisted (last {{ cutoff_minutes }} min)
+  </h3>
+  {% if current_unwhitelisted %}
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>SSID</th>
+          <th>BSSID</th>
+          <th>Security</th>
+          <th>Status</th>
+          <th>Device</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for o in current_unwhitelisted %}
+          <tr>
+            <td>{{ o.server_ts }}</td>
+            <td>{{ o.ssid|default:"<hidden>" }}</td>
+            <td class="mono">{{ o.bssid|default:"—" }}</td>
+            <td>{{ o.security|default:"—" }}</td>
+            <td>
+              <span style="background:#fee; color:#900; padding:2px 6px; border-radius:4px; font-size:12px;">
+                {{ o.match_status|default:"alert" }}
+              </span>
+            </td>
+            <td>{{ o.device.name|default:"—" }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted">No unwhitelisted APs detected in the last {{ cutoff_minutes }} minutes.</p>
+  {% endif %}
+
+  <h3 style="margin-top:2rem;">Alert logs / recent observations</h3>
+  {% if latest_logs %}
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>SSID</th>
+          <th>BSSID</th>
+          <th>Ch</th>
+          <th>Security</th>
+          <th>Device</th>
+          <th>Flagged</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for o in latest_logs %}
+          <tr>
+            <td>{{ o.server_ts }}</td>
+            <td>{{ o.ssid|default:"<hidden>" }}</td>
+            <td class="mono">{{ o.bssid|default:"—" }}</td>
+            <td>{{ o.channel|default:"—" }}</td>
+            <td>{{ o.security|default:"—" }}</td>
+            <td>{{ o.device.name|default:"—" }}</td>
+            <td>
+              {% if o.is_flagged %}
+                <span style="background:#fee; color:#900; padding:2px 6px; border-radius:4px; font-size:12px;">
+                  {{ o.match_status|default:"alert" }}
+                </span>
+              {% else %}
+                <span class="muted">ok</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted">No observations yet.</p>
+  {% endif %}
+
+  <h3 style="margin-top:2rem;">All Detected APs</h3>
+  {% if all_ap_logs %}
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>SSID</th>
+          <th>BSSID</th>
+          <th>Ch</th>
+          <th>Security</th>
+          <th>Device</th>
+          <th>Match Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for o in all_ap_logs %}
+          <tr>
+            <td>{{ o.server_ts }}</td>
+            <td>{{ o.ssid|default:"<hidden>" }}</td>
+            <td class="mono">{{ o.bssid|default:"—" }}</td>
+            <td>{{ o.channel|default:"—" }}</td>
+            <td>{{ o.security|default:"—" }}</td>
+            <td>{{ o.device.name|default:"—" }}</td>
+            <td>{{ o.match_status|default:"—" }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted">No AP logs found.</p>
+  {% endif %}
 {% endblock %}

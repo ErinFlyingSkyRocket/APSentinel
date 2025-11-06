@@ -1,19 +1,35 @@
+# evidence/forms.py
 from django import forms
-from .models import AccessPointWhitelist
+from .models import (
+    AccessPointWhitelistGroup,
+    AccessPointWhitelistEntry,
+)
 
-class AccessPointWhitelistForm(forms.ModelForm):
+
+class AccessPointWhitelistGroupForm(forms.ModelForm):
     class Meta:
-        model = AccessPointWhitelist
+        model = AccessPointWhitelistGroup
         fields = [
+            "name",
             "ssid",
+            "location",
+            "default_security",
+            "strict",
+            "is_active",
+        ]
+
+
+class AccessPointWhitelistEntryForm(forms.ModelForm):
+    class Meta:
+        model = AccessPointWhitelistEntry
+        fields = [
+            "group",
             "bssid",
+            "security",
+            "channel",
             "vendor_oui",
-            "expected_security",
-            "allowed_bands",
-            "allowed_channels",
-            "notes",
-            "active",
+            "is_active",
         ]
         widgets = {
-            "notes": forms.Textarea(attrs={"rows": 3}),
+            "vendor_oui": forms.TextInput(attrs={"placeholder": "e.g. F09FC2"}),
         }

@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block content %}
+  <h2>Add Whitelist Group</h2>
+  <form method="POST">
+    {% csrf_token %}
+    <div>
+      <label for="name">Group Name:</label>
+      <input type="text" id="name" name="name" required>
+    </div>
+    <div>
+      <label for="ssid">SSID:</label>
+      <input type="text" id="ssid" name="ssid" required>
+    </div>
+    <div>
+      <label for="location">Location:</label>
+      <input type="text" id="location" name="location">
+    </div>
+    <div>
+      <label for="default_security">Default Security:</label>
+      <select id="default_security" name="default_security">
+        <option value="">—</option>
+        <option value="OPEN">OPEN</option>
+        <option value="WEP">WEP</option>
+        <option value="WPA-PSK">WPA-PSK</option>
+        <option value="WPA2-PSK">WPA2-PSK</option>
+        <option value="WPA2-EAP">WPA2-EAP</option>
+        <option value="WPA3-SAE">WPA3-SAE</option>
+        <option value="WPA3-EAP">WPA3-EAP</option>
+      </select>
+    </div>
+    <div style="margin-top:1rem;">
+      <label>
+        <input type="checkbox" name="strict">
+        Strict (only listed BSSIDs are ok)
+      </label>
+    </div>
+    <div style="margin-top:1rem;">
+    <label style="display:flex; align-items:center; gap:6px;">
+        <input type="checkbox" name="is_active" checked>
+        Active (enable this whitelist group)
+    </label>
+    </div>
+    <button type="submit">Save Group</button>
+  </form>
+{% endblock %}

@@ -18,6 +18,12 @@
     <label for="description">Description</label>
     <textarea id="description" name="description" rows="3">{{ device.description|default_if_none:'' }}</textarea>
 
+    <!-- NEW: active toggle -->
+    <label style="margin-top:10px; display:flex; gap:8px; align-items:center;">
+      <input type="checkbox" name="is_active" {% if device.is_active %}checked{% endif %}>
+      Active (accept packets from this device)
+    </label>
+
     <div style="margin-top:12px;display:flex;gap:10px;">
       <button type="submit">💾 Save</button>
       <a href="/ui/devices" class="btn-link">Cancel</a>

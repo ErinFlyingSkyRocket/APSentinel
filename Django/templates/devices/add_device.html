@@ -28,15 +28,19 @@
   <input id="name" name="name" required style="width:420px;"><br><br>
 
   <label for="pubkey_pem">Public Key (PEM)</label><br>
-  <textarea id="pubkey_pem" name="pubkey_pem" rows="8" style="width:420px;" placeholder="-----BEGIN PUBLIC KEY-----">
-{{ public_pem }}
-  </textarea><br><br>
+  <textarea id="pubkey_pem" name="pubkey_pem" rows="8" style="width:420px;" placeholder="-----BEGIN PUBLIC KEY-----">{{ public_pem }}</textarea><br><br>
 
   <label for="location">Location</label><br>
   <input id="location" name="location" style="width:420px;"><br><br>
 
   <label for="description">Description</label><br>
   <textarea id="description" name="description" rows="3" style="width:420px;"></textarea><br><br>
+
+  <!-- NEW: active toggle -->
+  <label style="display:flex; gap:6px; align-items:center; margin-bottom:14px;">
+    <input type="checkbox" name="is_active" checked>
+    Active (allow this device to send packets)
+  </label>
 
   <button type="submit">Add Device</button>
 </form>

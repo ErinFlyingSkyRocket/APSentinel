@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block content %}
+  <h2>Edit Whitelist Group</h2>
+
+  <form method="post" action="">
+    {% csrf_token %}
+    <div class="form-grid" style="max-width:720px; display:grid; gap:0.75rem;">
+      <div>
+        <label>Group Name:</label>
+        <input type="text" name="name" value="{{ group.name }}" required>
+      </div>
+      <div>
+        <label>SSID:</label>
+        <input type="text" name="ssid" value="{{ group.ssid }}" required>
+      </div>
+      <div>
+        <label>Location (optional):</label>
+        <input type="text" name="location" value="{{ group.location|default:'' }}">
+      </div>
+      <div>
+        <label>Default Security:</label>
+        <select name="default_security">
+          <option value="" {% if not group.default_security %}selected{% endif %}>—</option>
+          <option value="OPEN" {% if group.default_security == "OPEN" %}selected{% endif %}>OPEN</option>
+          <option value="WEP" {% if group.default_security == "WEP" %}selected{% endif %}>WEP</option>
+          <option value="WPA-PSK" {% if group.default_security == "WPA-PSK" %}selected{% endif %}>WPA-PSK</option>
+          <option value="WPA2-PSK" {% if group.default_security == "WPA2-PSK" %}selected{% endif %}>WPA2-PSK</option>
+          <option value="WPA2-EAP" {% if group.default_security == "WPA2-EAP" %}selected{% endif %}>WPA2-EAP</option>
+          <option value="WPA3-SAE" {% if group.default_security == "WPA3-SAE" %}selected{% endif %}>WPA3-SAE</option>
+          <option value="WPA3-EAP" {% if group.default_security == "WPA3-EAP" %}selected{% endif %}>WPA3-EAP</option>
+        </select>
+      </div>
+      <div>
+        <label>
+          <input type="checkbox" name="strict" {% if group.strict %}checked{% endif %}>
+          Strict (only listed BSSIDs are ok)
+        </label>
+      </div>
+      <div>
+        <label style="display:flex; align-items:center; gap:6px;">
+            <input type="checkbox" name="is_active" {% if group.is_active %}checked{% endif %}>
+            Active (this whitelist group is currently {% if group.is_active %}enabled{% else %}disabled{% endif %})
+        </label>
+        </div>
+      <div>
+        <button type="submit">Save Group</button>
+        <a href="{% url 'whitelist_list' %}">Back</a>
+      </div>
+    </div>
+  </form>
+
+  <hr style="margin:2rem 0;">
+
+  <h3>Entries for this group</h3>
+  {% if entries %}
+    <table class="table">
+      <thead>
+        <tr>
+          <th>BSSID</th>
+          <th>Security</th>
+          <th>Channel</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for e in entries %}
+          <tr>
+            <td class="mono">{{ e.bssid|default:"ANY" }}</td>
+            <td>{{ e.security|default:"—" }}</td>
+            <td>{{ e.channel|default:"—" }}</td>
+            <td>
+              <form method="post" action="{% url 'whitelist_entry_delete' e.id %}">
+                {% csrf_token %}
+                <button class="btn-link" type="submit">Remove</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted">No BSSID entries yet.</p>
+  {% endif %}
+
+  <h4 style="margin-top:1.5rem;">Add BSSID to this group</h4>
+  <form method="post" action="">
+    {% csrf_token %}
+    <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
+      <div>
+        <label>BSSID</label>
+        <input type="text" name="new_bssid" placeholder="AA:BB:CC:DD:EE:FF">
+      </div>
+      <div>
+        <label>Security</label>
+        <input type="text" name="new_security" placeholder="Leave blank to use group default">
+      </div>
+      <div>
+        <label>Channel</label>
+        <input type="number" name="new_channel" min="1" max="196">
+      </div>
+    </div>
+    <div style="margin-top:1rem;">
+      <button type="submit">Add entry</button>
+    </div>
+  </form>
+{% endblock %}

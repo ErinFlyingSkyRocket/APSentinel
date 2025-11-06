@@ -1,42 +1,79 @@
-# ui/views.py
+from datetime import timedelta
 from django.shortcuts import render, get_object_or_404, redirect
 from django.core.paginator import Paginator
 from django.http import HttpResponse
 from django.utils.dateparse import parse_date
 from django.contrib.auth.decorators import login_required
 from django.db.models import Q
-
+from django.utils import timezone
 from devices.models import Device
-from evidence.models import AccessPointObservation  # UPDATED MODEL
-from .forms import DeviceForm
-
+from evidence.models import AccessPointObservation
 import csv
-
 
 @login_required
 def dashboard(request):
-    last = (
+    now = timezone.now()
+    cutoff = now - timedelta(minutes=5)  # Set "currently detected" window to 5 minutes
+
+    # 1) Current detected unwhitelisted (flagged + recent + deduplicated by BSSID or SSID)
+    recent_flagged = (
         AccessPointObservation.objects
         .select_related("device")
-        .order_by("-id")
-        .first()
+        .filter(is_flagged=True, server_ts__gte=cutoff)
+        .order_by("-server_ts")
     )
+
+    current_unwhitelisted = []
+    seen = set()
+    for o in recent_flagged:
+        # Prefer BSSID, fall back to SSID if no BSSID exists
+        key = o.bssid or f"ssid:{o.ssid}"
+        if key in seen:
+            continue
+        seen.add(key)
+        current_unwhitelisted.append(o)
+
+    # 2) Recent alert logs / recent observations (everything)
+    latest_logs = (
+        AccessPointObservation.objects
+        .select_related("device")
+        .order_by("-server_ts")[:50]
+    )
+
+    # 3) All AP logs regardless of whitelist status (all detected APs)
+    all_logs = (
+        AccessPointObservation.objects
+        .select_related("device")
+        .order_by("-server_ts")
+    )
+
     counts = {
         "observations": AccessPointObservation.objects.count(),
         "active_devices": Device.objects.filter(is_active=True).count(),
     }
-    return render(request, "ui/dashboard.html", {"last": last, "counts": counts})
+    
+    last = latest_logs[0] if latest_logs else None
+
+    return render(
+        request,
+        "ui/dashboard.html",
+        {
+            "last": last,
+            "counts": counts,
+            "current_unwhitelisted": current_unwhitelisted,
+            "latest_logs": latest_logs,
+            "all_logs": all_logs,  # For all detected APs, regardless of whitelist
+            "cutoff_minutes": 5,
+        },
+    )
 
 
 @login_required
 def observations(request):
-    qs = (
-        AccessPointObservation.objects
-        .select_related("device")
-        .order_by("-id")
-    )
+    # Start with all AccessPointObservation objects
+    qs = AccessPointObservation.objects.select_related("device", "matched_group", "matched_entry").order_by("-server_ts")
 
-    # Text search
+    # Text search (for SSID / BSSID)
     q = request.GET.get("q") or ""
     if q:
         qs = qs.filter(Q(ssid__icontains=q) | Q(bssid__icontains=q))
@@ -46,7 +83,7 @@ def observations(request):
     if device_id:
         qs = qs.filter(device_id=device_id)
 
-    # Date range (by server_ts date)
+    # Date range filter (using server_ts date)
     since = request.GET.get("since")
     until = request.GET.get("until")
     if since:
@@ -63,15 +100,14 @@ def observations(request):
         resp = HttpResponse(content_type="text/csv")
         resp["Content-Disposition"] = "attachment; filename=observations.csv"
         w = csv.writer(resp)
-        w.writerow(["id", "server_ts", "device", "ssid", "bssid", "rssi"])
+        w.writerow([
+            "id", "server_ts", "device", "ssid", "bssid", "channel", "security", "rssi_current", "match_status"
+        ])
         for o in qs.iterator():
             w.writerow([
-                o.id,
-                o.server_ts.isoformat() if o.server_ts else "",
-                o.device.name if o.device else "",
-                o.ssid or "",
-                o.bssid or "",
-                o.rssi if o.rssi is not None else "",
+                o.id, o.server_ts.isoformat() if o.server_ts else "",
+                o.device.name if o.device else "", o.ssid or "", o.bssid or "",
+                o.channel or "", o.security or "", o.rssi_current if o.rssi_current is not None else "", o.match_status or ""
             ])
         return resp
 
@@ -87,42 +123,32 @@ def observations(request):
     return render(
         request,
         "ui/observations.html",
-        {"page": page, "devices": devices, "keepqs": keepqs},
+        {
+            "page": page,
+            "devices": devices,
+            "keepqs": keepqs,
+        },
     )
 
 
 @login_required
 def observation_detail(request, pk: int):
     o = get_object_or_404(
-        AccessPointObservation.objects.select_related("device"),
-        pk=pk
+        AccessPointObservation.objects.select_related("device", "matched_group", "matched_entry"),
+        pk=pk,
     )
-
-    def tohex(val):
-        if not val:
-            return None
-        if isinstance(val, (bytes, bytearray)):
-            return val.hex()
-        # Some DB backends can return memoryview for BinaryField
-        try:
-            from collections.abc import Iterable
-            if isinstance(val, memoryview):
-                return bytes(val).hex()
-            # If value is already hex string, return as-is
-            if isinstance(val, str):
-                return val
-            # Fallback: try bytes() conversion
-            return bytes(val).hex()
-        except Exception:
-            return str(val)
-
-    ctx = {
-        "o": o,
-        "payload_hex": tohex(o.payload_hash),
-        "prev_hex": tohex(o.prev_chain_hash),
-        "chain_hex": tohex(o.chain_hash),
-    }
-    return render(request, "ui/observation_detail.html", ctx)
+    return render(
+        request,
+        "ui/observation_detail.html",
+        {
+            "o": o,
+            "canonical": o.canonical,
+            "hash_sha256": o.hash_sha256,
+            "sig_alg": o.sig_alg,
+            "sig_r": o.sig_r,
+            "sig_s": o.sig_s,
+        },
+    )
 
 
 @login_required
@@ -132,15 +158,3 @@ def devices_view(request):
         "ui/devices.html",
         {"devices": Device.objects.order_by("name")},
     )
-
-
-@login_required
-def add_device(request):
-    if request.method == "POST":
-        form = DeviceForm(request.POST)
-        if form.is_valid():
-            form.save()
-            return redirect("/ui/devices")
-    else:
-        form = DeviceForm()
-    return render(request, "ui/add_device.html", {"form": form})

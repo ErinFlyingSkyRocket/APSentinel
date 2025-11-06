@@ -521,3 +521,55 @@ table.whitelist thead th {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   font-size: 12px;
 }
+
+/* ======================================================
+   Form Layout & Checkbox Alignment Fix
+   ====================================================== */
+
+/* General form input alignment */
+form div {
+  margin-bottom: 12px;
+}
+
+/* Fix checkbox alignment for labels like "Strict (only listed...)" */
+input[type="checkbox"] {
+  width: auto;
+  height: 16px;
+  vertical-align: middle;
+  accent-color: #294a94; /* matches your button blue tone */
+  margin-right: 6px;
+}
+
+/* Make checkbox labels align visually better */
+label input[type="checkbox"] {
+  position: relative;
+  top: 2px; /* slight vertical adjustment for alignment */
+}
+
+/* Optional: make the checkbox row cleaner */
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+/* Improve form spacing consistency */
+form label {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+form button {
+  margin-top: 8px;
+}
+
+/* Input + select consistent height */
+input[type="text"],
+select {
+  height: 36px;
+}
