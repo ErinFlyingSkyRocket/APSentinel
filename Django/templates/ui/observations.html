@@ -60,7 +60,7 @@
             {% if current_unwhitelisted %}
               {% for o in current_unwhitelisted %}
               <tr>
-                <td>{{ o.ssid|default:"&mdash;" }}</td>
+                <td>{{ o.ssid|default:"—" }}</td>
                 <td class="mono">{{ o.bssid }}</td>
                 <td>{{ o.channel }}</td>
                 <td>{{ o.server_ts|date:"M j, Y, g:i a" }}</td>
@@ -93,7 +93,7 @@
               {% for o in recent_alerts %}
               <tr>
                 <td>{{ o.server_ts|date:"M j, Y, g:i a" }}</td>
-                <td>{{ o.ssid|default:"&mdash;" }}</td>
+                <td>{{ o.ssid|default:"—" }}</td>
                 <td class="mono">{{ o.bssid }}</td>
               </tr>
               {% endfor %}
@@ -133,8 +133,14 @@
             <tr>
               <td>{{ o.id }}</td>
               <td>{{ o.server_ts|date:"M j, Y, g:i a" }}</td>
-              <td>{{ o.device.name if o.device }}</td>
-              <td>{{ o.ssid|default:"&mdash;" }}</td>
+              <td>
+                {% if o.device %}
+                  {{ o.device.name }}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td>{{ o.ssid|default:"—" }}</td>
               <td class="mono">{{ o.bssid }}</td>
               <td>{{ o.channel }}</td>
               <td>{{ o.security }}</td>
@@ -152,7 +158,6 @@
       </table>
     </div>
 
-    <!-- pagination -->
     {% if page.paginator.num_pages > 1 %}
     <div class="pagination">
       {% if page.has_previous %}
