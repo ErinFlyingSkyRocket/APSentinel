@@ -14,8 +14,12 @@
 #include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
 #include <Preferences.h>
+#include <vector>
+#include <algorithm>
 // ---- mbedTLS compatibility (2.x vs 3.x) ----
 #include "mbedtls/version.h"
+
+struct Row;
 
 #if MBEDTLS_VERSION_NUMBER >= 0x03000000
   // Access private members via MBEDTLS_PRIVATE() in 3.x
@@ -49,7 +53,12 @@ extern "C" {
   #include "esp_err.h"
 }
 
-struct Row;
+// --- WiFi event handler to see disconnect reason ---
+void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
+  if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
+    Serial.printf("[WiFi] DISCONNECTED. reason = %d\n", info.wifi_sta_disconnected.reason);
+  }
+}
 
 // ---------- YOUR SETTINGS ----------
 #define WIFI_SSID   "YOUR_WIFI_SSID"
@@ -650,28 +659,25 @@ String buildJsonPayload() {
 }
 
 bool wifiEnsureConnected() {
-  if (WiFi.status() == WL_CONNECTED) return true;
+  if (WiFi.status() == WL_CONNECTED) {
+    return true;
+  }
 
-  // make sure promisc & old wifi are really off
-  esp_wifi_stop();
-  esp_wifi_deinit();
-
-  // re-init Wi-Fi in normal STA mode
-  wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-  esp_wifi_init(&cfg);
-  esp_wifi_set_mode(WIFI_MODE_STA);
-  esp_wifi_start();
+  // make sure we are not in promiscuous mode while connecting
+  esp_wifi_set_promiscuous(false);
 
   WiFi.mode(WIFI_STA);
-  WiFi.setAutoReconnect(false);  // we do it manually
+  WiFi.disconnect(true, true);
+  delay(200);
+
+  Serial.printf("[WiFi] Connecting to SSID: %s\n", WIFI_SSID);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
 
-  Serial.print("[WiFi] Connecting to "); Serial.println(WIFI_SSID);
-
   unsigned long t0 = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - t0 < 15000) {
-    delay(300);
+  const unsigned long timeout = 20000;
+  while (WiFi.status() != WL_CONNECTED && millis() - t0 < timeout) {
     Serial.print(".");
+    delay(500);
   }
   Serial.println();
 
@@ -688,38 +694,64 @@ bool wifiEnsureConnected() {
 bool uploadJsonHTTPS(const String& payload) {
   if (!wifiEnsureConnected()) return false;
 
-  WiFiClient client;  // plain HTTP
-
+  bool is_https = String(SERVER_HOST).startsWith("https");
   HTTPClient http;
+
   String url = String(SERVER_HOST) + String(SERVER_PATH);
-
   Serial.printf("[HTTP] begin(%s)\n", url.c_str());
-  if (!http.begin(client, url)) {
-    Serial.println("[HTTP] begin() failed");
-    return false;
-  }
 
-  http.addHeader("Content-Type", "application/json");
-  int code = http.POST((uint8_t*)payload.c_str(), payload.length());
-  Serial.printf("[HTTP] POST -> code %d\n", code);
-
-  if (code > 0) {
-    // success or server error, print body
-    String resp = http.getString();
-    Serial.printf("[HTTP] Response (%d bytes): %s\n", resp.length(), resp.c_str());
+  if (is_https) {
+    // secure client with root CA
+    WiFiClientSecure *client = new WiFiClientSecure();
+    client->setCACert(ROOT_CA_PEM);
+    if (!http.begin(*client, url)) {
+      Serial.println("[HTTP] begin() failed (https)");
+      delete client;
+      return false;
+    }
+    http.addHeader("Content-Type", "application/json");
+    int code = http.POST((uint8_t*)payload.c_str(), payload.length());
+    Serial.printf("[HTTP] POST -> code %d\n", code);
+    if (code > 0) {
+      String resp = http.getString();
+      Serial.printf("[HTTP] Response (%d bytes): %s\n", resp.length(), resp.c_str());
+    } else {
+      Serial.printf("[HTTP] POST failed: %s\n", http.errorToString(code).c_str());
+    }
+    http.end();
+    delete client;
+    return code >= 200 && code < 300;
   } else {
-    // transport-level error (couldn't reach server / connection refused / etc.)
-    Serial.printf("[HTTP] POST failed: %s\n", http.errorToString(code).c_str());
+    // plain HTTP
+    WiFiClient *client = new WiFiClient();
+    if (!http.begin(*client, url)) {
+      Serial.println("[HTTP] begin() failed (http)");
+      delete client;
+      return false;
+    }
+    http.addHeader("Content-Type", "application/json");
+    int code = http.POST((uint8_t*)payload.c_str(), payload.length());
+    Serial.printf("[HTTP] POST -> code %d\n", code);
+    if (code > 0) {
+      String resp = http.getString();
+      Serial.printf("[HTTP] Response (%d bytes): %s\n", resp.length(), resp.c_str());
+    } else {
+      Serial.printf("[HTTP] POST failed: %s\n", http.errorToString(code).c_str());
+    }
+    http.end();
+    delete client;
+    return code >= 200 && code < 300;
   }
-
-  http.end();
-  return code >= 200 && code < 300;
 }
 
 // ---------- SETUP / LOOP ----------
 void setup() {
-  Serial.begin(115200); delay(400);
+  Serial.begin(115200);
+  delay(400);
   pinMode(BOOT_BTN, INPUT_PULLUP);
+
+  // watch disconnect reasons
+  WiFi.onEvent(WiFiEvent);
 
   Serial.println("\nESP32 AP sniffer (dedup table) - with OUI, SECURITY, RSN, AKM, PMF + Secure Upload");
 
@@ -728,18 +760,19 @@ void setup() {
     Serial.println("[Crypto] Key init failed; will continue without signing.");
   }
 
-  // clean Wi-Fi bring-up for promiscuous
-  esp_wifi_stop(); esp_wifi_deinit();
-  wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-  esp_wifi_init(&cfg);
-  set_country_1_13();
-  esp_wifi_set_mode(WIFI_MODE_STA);
-  esp_wifi_start();
-  esp_wifi_set_ps(WIFI_PS_NONE);
+  // *** IMPORTANT ***
+  // Let Arduino own Wi-Fi from the start
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect(true, true);
+  delay(200);
 
-  // promisc on
+  // set country/channels
+  set_country_1_13();
+
+  // now just turn on promiscuous on the already-started driver
   esp_wifi_set_promiscuous_rx_cb(&cb);
-  wifi_promiscuous_filter_t f{}; f.filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT;
+  wifi_promiscuous_filter_t f{};
+  f.filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT;
   esp_wifi_set_promiscuous_filter(&f);
   esp_wifi_set_promiscuous(true);
 
@@ -754,7 +787,10 @@ void setup() {
 }
 
 void tryUploadIfNeeded() {
-  // Build JSON and upload once.
+  // 1) stop sniffing so station mode can connect cleanly
+  esp_wifi_set_promiscuous(false);
+  delay(120);
+
   String json = buildJsonPayload();
   Serial.printf("[Upload] Payload size: %u bytes\n", (unsigned)json.length());
 
@@ -768,6 +804,7 @@ void tryUploadIfNeeded() {
     sendPending = true;
   }
 }
+
 
 void loop() {
 
