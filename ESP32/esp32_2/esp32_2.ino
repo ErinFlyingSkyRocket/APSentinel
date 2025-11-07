@@ -651,37 +651,49 @@ String buildJsonPayload() {
 
 bool wifiEnsureConnected() {
   if (WiFi.status() == WL_CONNECTED) return true;
+
+  // make sure promisc & old wifi are really off
+  esp_wifi_stop();
+  esp_wifi_deinit();
+
+  // re-init Wi-Fi in normal STA mode
+  wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+  esp_wifi_init(&cfg);
+  esp_wifi_set_mode(WIFI_MODE_STA);
+  esp_wifi_start();
+
   WiFi.mode(WIFI_STA);
-  WiFi.setAutoReconnect(true);
+  WiFi.setAutoReconnect(false);  // we do it manually
   WiFi.begin(WIFI_SSID, WIFI_PASS);
-  Serial.print("[WiFi] Connecting");
+
+  Serial.print("[WiFi] Connecting to "); Serial.println(WIFI_SSID);
+
   unsigned long t0 = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - t0 < 15000) {
-    delay(300); Serial.print(".");
+    delay(300);
+    Serial.print(".");
   }
   Serial.println();
+
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.print("[WiFi] Connected, IP: "); Serial.println(WiFi.localIP());
+    Serial.print("[WiFi] Connected, IP: ");
+    Serial.println(WiFi.localIP());
     return true;
+  } else {
+    Serial.println("[WiFi] Connect failed");
+    return false;
   }
-  Serial.println("[WiFi] Connect failed");
-  return false;
 }
 
 bool uploadJsonHTTPS(const String& payload) {
   if (!wifiEnsureConnected()) return false;
 
-  WiFiClientSecure client;
-  client.setTimeout(15000);
-  if (ROOT_CA_PEM && strlen(ROOT_CA_PEM) > 0) {
-    client.setCACert(ROOT_CA_PEM); // validate server cert chain
-  } else {
-    Serial.println("[TLS] WARNING: no CA set (not secure).");
-  }
+  WiFiClient client;  // plain HTTP
 
   HTTPClient http;
   String url = String(SERVER_HOST) + String(SERVER_PATH);
 
+  Serial.printf("[HTTP] begin(%s)\n", url.c_str());
   if (!http.begin(client, url)) {
     Serial.println("[HTTP] begin() failed");
     return false;
@@ -689,11 +701,15 @@ bool uploadJsonHTTPS(const String& payload) {
 
   http.addHeader("Content-Type", "application/json");
   int code = http.POST((uint8_t*)payload.c_str(), payload.length());
-  Serial.printf("[HTTP] POST %s -> code %d\n", url.c_str(), code);
+  Serial.printf("[HTTP] POST -> code %d\n", code);
 
   if (code > 0) {
+    // success or server error, print body
     String resp = http.getString();
     Serial.printf("[HTTP] Response (%d bytes): %s\n", resp.length(), resp.c_str());
+  } else {
+    // transport-level error (couldn't reach server / connection refused / etc.)
+    Serial.printf("[HTTP] POST failed: %s\n", http.errorToString(code).c_str());
   }
 
   http.end();

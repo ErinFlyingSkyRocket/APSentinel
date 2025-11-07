@@ -30,7 +30,7 @@ SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-key-only-for-local")
 DEBUG = os.getenv("DJANGO_DEBUG", "False") == "True"
 
 # Allowed hosts
-ALLOWED_HOSTS = os.getenv("DJANGO_ALLOWED_HOSTS", "").split(",") if os.getenv("DJANGO_ALLOWED_HOSTS") else []
+ALLOWED_HOSTS = ["*"]
 
 
 # Application definition

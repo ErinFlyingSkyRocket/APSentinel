@@ -4,7 +4,7 @@ import json
 from django.shortcuts import render, get_object_or_404, redirect
 from django.utils import timezone
 from django.db.models import Q
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponseBadRequest
 from django.views.decorators.csrf import csrf_exempt
 
 from .models import (
@@ -147,79 +147,89 @@ def whitelist_entry_delete(request, pk):
 # ---------------------------------------------------------------------
 @csrf_exempt
 def esp32_ingest(request):
-    """
-    Expected JSON (example):
-    {
-      "device_name": "scanner-01",
-      "aps": [
-        {
-          "ssid": "Hospital-WiFi",
-          "bssid": "AA:BB:CC:DD:EE:FF",
-          "channel": 6,
-          "band": "2.4GHz",
-          "rssi_current": -55,
-          "security": "WPA2-PSK"
-        },
-        ...
-      ]
-    }
-    We will:
-      1. check device exists
-      2. check device.is_active == True
-      3. if inactive, ignore
-      4. else store observations
-    """
+    # 0) print every single hit
+    print("=== /ingest/esp32/ CALLED ===")
+    print("method:", request.method)
+    print("path:", request.path)
+    try:
+        body = request.body.decode("utf-8")
+    except Exception:
+        body = "<decode failed>"
+    print("raw body:", body)
+    print("headers:", dict(request.headers))
+    print("=== END CALL ===")
+
+    # If you open it in the browser, you should see this.
+    if request.method == "GET":
+        return JsonResponse({"status": "alive", "detail": "send POST JSON here"}, status=200)
+
     if request.method != "POST":
         return JsonResponse({"error": "POST only"}, status=405)
 
+    # try to parse JSON
     try:
-        payload = json.loads(request.body.decode("utf-8"))
-    except Exception:
-        return JsonResponse({"error": "invalid json"}, status=400)
+        payload = json.loads(body)
+    except Exception as e:
+        return JsonResponse({"error": "invalid json", "detail": str(e)}, status=400)
 
-    # 1) who sent this?
-    device_name = payload.get("device_name") or request.headers.get("X-Device-Name")
-    if not device_name:
-        return JsonResponse({"error": "device_name missing"}, status=400)
+    # detect format
+    if "observations" in payload:
+        device_block = payload.get("device", {}) or {}
+        device_mac = device_block.get("mac")
+        device_name = device_block.get("name")
+        records = payload.get("observations", [])
+    else:
+        device_mac = None
+        device_name = payload.get("device_name") or request.headers.get("X-Device-Name")
+        records = payload.get("aps", [])
 
-    # 2) is this device allowed?
-    device = Device.objects.filter(name=device_name).first()
+    if not device_mac and not device_name:
+        return JsonResponse({"error": "device identifier missing"}, status=400)
+
+    # find device
+    device = None
+    if device_mac:
+        device = Device.objects.filter(
+            Q(mac_address__iexact=device_mac) | Q(name__iexact=device_mac)
+        ).first()
+
+    if not device and device_name:
+        device = Device.objects.filter(name__iexact=device_name).first()
+
     if not device or not device.is_active:
-        # silently accept but do nothing
         return JsonResponse(
             {"status": "ignored", "reason": "device_inactive_or_unknown"},
             status=200,
         )
 
-    # 3) mark device as seen
     device.last_seen = timezone.now()
     device.save(update_fields=["last_seen"])
 
-    aps = payload.get("aps", [])
     created = 0
-
-    for ap in aps:
-        bssid = ap.get("bssid")
+    for rec in records:
+        bssid = rec.get("bssid")
         if not bssid:
             continue
 
+        pmf_obj = rec.get("pmf") or {}
+
         AccessPointObservation.objects.create(
             device=device,
-            ssid=ap.get("ssid") or None,
+            ssid=rec.get("ssid") or None,
             bssid=bssid,
-            oui=ap.get("oui") or None,
-            channel=ap.get("channel") or 1,
-            band=ap.get("band") or None,
-            rssi_current=ap.get("rssi_current"),
-            rssi_best=ap.get("rssi_best"),
-            beacons=ap.get("beacons"),
-            sensor_last_seen_ms=ap.get("last_seen_ms"),
-            security=ap.get("security") or None,
-            rsn_text=ap.get("rsn_text") or None,
-            akm_list=ap.get("akm_list") or None,
-            pmf_capable=ap.get("pmf_capable", False),
-            pmf_required=ap.get("pmf_required", False),
-            sensor_ts=timezone.now(),   # or parse from ap if you send it
+            oui=rec.get("oui") or None,
+            channel=rec.get("ch") or rec.get("channel") or 1,
+            band=None,
+            rssi_current=rec.get("rssi_cur") or rec.get("rssi_current"),
+            rssi_best=rec.get("rssi_best"),
+            beacons=rec.get("beacons"),
+            sensor_last_seen_ms=rec.get("last_seen_ms"),
+            security=rec.get("security") or None,
+            rsn_text=rec.get("rsn") or rec.get("rsn_text"),
+            akm_list=rec.get("akm") or rec.get("akm_list"),
+            pmf_capable=pmf_obj.get("cap", False) or rec.get("pmf_capable", False),
+            pmf_required=pmf_obj.get("req", False) or rec.get("pmf_required", False),
+            sensor_ts=timezone.now(),
             server_ts=timezone.now(),
         )
         created += 1
