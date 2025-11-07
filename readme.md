@@ -1,18 +1,18 @@
 # 🛰️ Apsentinel — Network Forensics Dashboard
 
-Apsentinel is a **Django-based network forensics web application** for managing and visualizing Wi-Fi observations collected from registered **ESP32 sensors**.
+Apsentinel is a **Django-based network forensics web application** for managing and visualizing Wi-Fi observations collected from registered **ESP32 sensors**.  
 It maintains an **append-only evidence chain**, verifying each observation’s integrity and ensuring authenticity using **ECDSA + SHA-256** cryptography.
 
 ---
 
 ## ⚙️ 1. Features
 
-* 🧩 **Device registration** — manage ESP32 devices and their public keys
-* 🛰️ **Observation logs** — view SSID/BSSID/RSSI data collected in real time
-* 🔒 **Hash-chained evidence** — tamper detection via cryptographic verification
-* 📊 **Dashboard** — total observations, active devices, and last event summary
-* 🔐 **Authentication** — secure access via Django’s login system
-* 🎨 **Unified dark theme** — single CSS shared across all pages
+* 🧩 **Device registration** — manage ESP32 devices and their public keys  
+* 🛰️ **Observation logs** — view SSID/BSSID/RSSI data collected in real time  
+* 🔒 **Hash-chained evidence** — tamper detection via cryptographic verification  
+* 📊 **Dashboard** — total observations, active devices, and last event summary  
+* 🔐 **Authentication** — secure access via Django’s login system  
+* 🎨 **Unified dark theme** — single CSS shared across all pages  
 
 ---
 
@@ -28,7 +28,7 @@ python -m venv .venv
 source .venv/bin/activate
 
 pip install -r requirements.txt
-```
+````
 
 If `requirements.txt` doesn’t exist:
 
@@ -110,6 +110,39 @@ Access from browser or ESP32:
 ```
 http://<your-ec2-ip>:8000
 ```
+
+---
+
+## 🔄 3.1 Updating to the Latest Version (Git Pull)
+
+Keep your AWS instance synchronized with the latest GitHub code.
+
+### Step 1 — Navigate to your project
+
+```bash
+cd ~/APSentinel
+```
+
+### Step 2 — Pull latest code safely
+
+```bash
+git fetch origin && git checkout main && git pull origin main
+```
+
+If you want a **clean reset** (discarding local edits):
+
+```bash
+git fetch origin && git reset --hard origin/main
+```
+
+### Step 3 — Restart Django
+
+```bash
+source .venv/bin/activate
+python manage.py runserver 0.0.0.0:8000
+```
+
+> 🟢 **Tip:** Run this before every deployment to ensure you have the newest features and fixes.
 
 ---
 
