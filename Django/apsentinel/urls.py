@@ -4,7 +4,7 @@ from django.urls import path
 from django.contrib.auth import views as auth_views
 
 from .views import health, ingest_observation
-from ui.views import dashboard, observations, observation_detail
+from ui.views import dashboard, observations, observation_detail, observations_unwhitelisted
 from devices.views import devices_view, add_device_view, delete_device_view, edit_device_view
 from evidence.views import latest_observation, whitelist_list, whitelist_add, whitelist_edit, whitelist_delete, whitelist_entry_delete, esp32_ingest
 
@@ -18,6 +18,7 @@ urlpatterns = [
     # UI – Observations
     path("ui/observations", observations, name="observations"),
     path("ui/observations/<int:pk>", observation_detail, name="observation_detail"),
+    path("ui/observations/unwhitelisted", observations_unwhitelisted, name="observations_unwhitelisted"),
     # UI – Devices
     path("ui/devices", devices_view, name="devices"),
     path("ui/devices/add", add_device_view, name="device_add"),

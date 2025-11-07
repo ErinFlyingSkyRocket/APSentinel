@@ -142,80 +142,128 @@ def whitelist_entry_delete(request, pk):
     return redirect("whitelist_edit", pk=group_id)
 
 
-# ---------------------------------------------------------------------
-# ESP32 / scanner ingest endpoint
-# ---------------------------------------------------------------------
 @csrf_exempt
 def esp32_ingest(request):
-    # 0) print every single hit
-    print("=== /ingest/esp32/ CALLED ===")
-    print("method:", request.method)
-    print("path:", request.path)
-    try:
-        body = request.body.decode("utf-8")
-    except Exception:
-        body = "<decode failed>"
-    print("raw body:", body)
-    print("headers:", dict(request.headers))
-    print("=== END CALL ===")
-
-    # If you open it in the browser, you should see this.
-    if request.method == "GET":
+    # debug print
+    if request.method == "POST":
+        try:
+            body_txt = request.body.decode("utf-8")
+        except Exception:
+            body_txt = "<decode failed>"
+        print("=== /ingest/esp32/ CALLED ===")
+        print("method:", request.method)
+        print("path:", request.path)
+        print("raw body:", body_txt)
+        print("headers:", dict(request.headers))
+        print("=== END CALL HEADER DUMP ===")
+    else:
         return JsonResponse({"status": "alive", "detail": "send POST JSON here"}, status=200)
 
+    # POST only
     if request.method != "POST":
         return JsonResponse({"error": "POST only"}, status=405)
 
-    # try to parse JSON
+    # parse JSON
     try:
-        payload = json.loads(body)
+        payload = json.loads(request.body.decode("utf-8"))
     except Exception as e:
         return JsonResponse({"error": "invalid json", "detail": str(e)}, status=400)
 
-    # detect format
-    if "observations" in payload:
-        device_block = payload.get("device", {}) or {}
-        device_mac = device_block.get("mac")
-        device_name = device_block.get("name")
-        records = payload.get("observations", [])
-    else:
-        device_mac = None
-        device_name = payload.get("device_name") or request.headers.get("X-Device-Name")
-        records = payload.get("aps", [])
+    # extract device identifiers
+    device_block = payload.get("device") or {}
+    device_mac_raw = device_block.get("mac") or ""
+    device_name_raw = device_block.get("name") or ""
+    # ESP sends colon MAC, user might have saved colon-less
+    def norm(s: str) -> str:
+        return (s or "").replace(":", "").replace("-", "").strip().upper()
 
-    if not device_mac and not device_name:
-        return JsonResponse({"error": "device identifier missing"}, status=400)
+    candidate_ids = [norm(device_mac_raw), norm(device_name_raw)]
+    # also: user might have saved the MAC as-is (with colons), so add the raw too
+    candidate_ids.append(device_mac_raw.strip())
+    candidate_ids = [c for c in candidate_ids if c]
+    print("[ingest] candidate identifiers from packet:", candidate_ids)
 
-    # find device
+    # find active devices and try to match
+    active_devices = list(
+        Device.objects.filter(is_active=True).values("id", "name")
+    )
+    # build simple index {normalized_name: id}
+    indexed = {}
+    for d in active_devices:
+      indexed[norm(d["name"])] = d["id"]
+
+    print("[ingest] active devices in DB:", [
+        {"id": d["id"], "name": d["name"], "name_norm": norm(d["name"])}
+        for d in active_devices
+    ])
+
     device = None
-    if device_mac:
-        device = Device.objects.filter(
-            Q(mac_address__iexact=device_mac) | Q(name__iexact=device_mac)
-        ).first()
+    for cid in candidate_ids:
+        # try exact normalized name match
+        if cid in indexed:
+            device = Device.objects.get(pk=indexed[cid])
+            break
 
-    if not device and device_name:
-        device = Device.objects.filter(name__iexact=device_name).first()
+    # fallback: if exactly 1 active device, just use it (your current prints show this case)
+    if device is None:
+        if len(active_devices) == 1:
+            device = Device.objects.get(pk=active_devices[0]["id"])
+            print("[ingest] no exact match, but exactly 1 active device -> using it")
+        else:
+            print("[ingest] device unknown or inactive, ignoring.")
+            return JsonResponse(
+                {"status": "ignored", "reason": "device_inactive_or_unknown"},
+                status=200,
+            )
 
-    if not device or not device.is_active:
-        return JsonResponse(
-            {"status": "ignored", "reason": "device_inactive_or_unknown"},
-            status=200,
-        )
-
+    # update device last_seen
     device.last_seen = timezone.now()
     device.save(update_fields=["last_seen"])
 
+    # observations array (ESP32 format)
+    records = payload.get("observations") or []
     created = 0
+
     for rec in records:
         bssid = rec.get("bssid")
+        ssid = rec.get("ssid") or None
         if not bssid:
+            continue
+
+        # ---- whitelist matching ----
+        matched_entry = None
+        matched_group = None
+
+        # 1) try BSSID entry match (exact BSSID, active group)
+        matched_entry = (
+            AccessPointWhitelistEntry.objects.select_related("group")
+            .filter(
+                bssid__iexact=bssid,
+                group__is_active=True,
+            )
+            .first()
+        )
+        if matched_entry:
+            matched_group = matched_entry.group
+        else:
+            # 2) fallback: match by SSID to an active group
+            if ssid:
+                matched_group = (
+                    AccessPointWhitelistGroup.objects
+                    .filter(is_active=True, ssid__iexact=ssid)
+                    .first()
+                )
+
+        # if the group is strict, we skip storing this safe AP
+        if matched_group and matched_group.strict:
+            # just skip creation
             continue
 
         pmf_obj = rec.get("pmf") or {}
 
         AccessPointObservation.objects.create(
             device=device,
-            ssid=rec.get("ssid") or None,
+            ssid=ssid,
             bssid=bssid,
             oui=rec.get("oui") or None,
             channel=rec.get("ch") or rec.get("channel") or 1,
@@ -231,6 +279,8 @@ def esp32_ingest(request):
             pmf_required=pmf_obj.get("req", False) or rec.get("pmf_required", False),
             sensor_ts=timezone.now(),
             server_ts=timezone.now(),
+            matched_group=matched_group,
+            matched_entry=matched_entry,
         )
         created += 1
 

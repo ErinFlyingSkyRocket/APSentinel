@@ -573,3 +573,60 @@ input[type="text"],
 select {
   height: 36px;
 }
+
+/* --- Observations layout tweaks --- */
+.obs-block {
+  background: #111624;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin-top: 14px;
+  overflow: hidden;
+}
+
+.obs-block h3 {
+  margin: 0;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+  font-size: 15px;
+}
+
+.obs-block .actions {
+  float: right;
+}
+
+.table-tight th,
+.table-tight td {
+  padding: 7px 10px;
+}
+
+/* paginator but not bullet points */
+.pagination {
+  display: flex;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.pagination a,
+.pagination span {
+  display: inline-block;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #0e1422;
+  text-decoration: none;
+  color: #e6e9ef;
+  font-size: 13px;
+}
+
+.pagination .current {
+  background: #294a94;
+  border-color: #294a94;
+}
+
+@media (min-width: 950px) {
+  .obs-top-grid {
+    display: grid;
+    grid-template-columns: 1.1fr 0.9fr;
+    gap: 14px;
+  }
+}

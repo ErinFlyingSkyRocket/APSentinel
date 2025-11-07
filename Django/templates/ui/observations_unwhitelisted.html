@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid px-4 py-4">
+  <h1 class="mb-4">Unwhitelisted AP Logs</h1>
+  <p class="text-muted mb-3">These are observations where no active whitelist group or entry matched.</p>
+
+  <div class="card bg-dark border-secondary">
+    <div class="card-header border-secondary d-flex justify-content-between align-items-center">
+      <strong>Suspicious / Unwhitelisted</strong>
+      <span class="text-muted small">Total: {{ page_obj.paginator.count }}</span>
+    </div>
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-dark table-striped mb-0">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Time</th>
+              <th>Device</th>
+              <th>SSID</th>
+              <th>BSSID</th>
+              <th>Ch</th>
+              <th>Security</th>
+              <th>RSSI</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for obs in page_obj %}
+              <tr>
+                <td>{{ obs.id }}</td>
+                <td style="white-space:nowrap">{{ obs.server_ts|date:"M j, Y, g:i a" }}</td>
+                <td>{{ obs.device.name }}</td>
+                <td>{{ obs.ssid|default:"&lt;hidden&gt;"|safe }}</td>
+                <td>{{ obs.bssid }}</td>
+                <td>{{ obs.channel|default:"?" }}</td>
+                <td>{{ obs.security|default:"—" }}</td>
+                <td>{{ obs.rssi_current|default:"—" }}</td>
+                <td><a href="{% url 'observation_detail' obs.id %}" class="btn btn-sm btn-outline-light">Details</a></td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="9" class="text-center text-muted p-4">No unwhitelisted observations.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    {% if page_obj.has_other_pages %}
+    <div class="card-footer bg-dark border-secondary d-flex justify-content-center">
+      <ul class="pagination pagination-sm mb-0">
+        {% if page_obj.has_previous %}
+          <li class="page-item"><a class="page-link" href="?page={{ page_obj.previous_page_number }}">&laquo;</a></li>
+        {% else %}
+          <li class="page-item disabled"><span class="page-link">&laquo;</span></li>
+        {% endif %}
+
+        {% for num in page_obj.paginator.page_range %}
+          {% if num >= page_obj.number|add:-2 and num <= page_obj.number|add:2 %}
+            {% if num == page_obj.number %}
+              <li class="page-item active"><span class="page-link">{{ num }}</span></li>
+            {% else %}
+              <li class="page-item"><a class="page-link" href="?page={{ num }}">{{ num }}</a></li>
+            {% endif %}
+          {% endif %}
+        {% endfor %}
+
+        {% if page_obj.has_next %}
+          <li class="page-item"><a class="page-link" href="?page={{ page_obj.next_page_number }}">&raquo;</a></li>
+        {% else %}
+          <li class="page-item disabled"><span class="page-link">&raquo;</span></li>
+        {% endif %}
+      </ul>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

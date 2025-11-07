@@ -1,151 +1,176 @@
 {% extends "base.html" %}
 
 {% block content %}
-<h2 class="page-title">Observations</h2>
+<main>
+  <h1 class="page-title">Observations</h1>
 
-<!-- Filter Form -->
-<form method="get" class="filterbar">
-  <div class="field">
-    <label for="q">SSID or BSSID</label>
-    <input id="q" type="text" name="q" placeholder="e.g. Guest or AA:BB:CC:DD:EE:FF" value="{{ request.GET.q }}">
+  <!-- Filter bar -->
+  <form method="get" class="filterbar">
+    <div class="field">
+      <label for="q">SSID or BSSID</label>
+      <input type="text" id="q" name="q" value="{{ request.GET.q }}">
+    </div>
+    <div class="field">
+      <label for="device">Device</label>
+      <select id="device" name="device">
+        <option value="">All devices</option>
+        {% for d in devices %}
+          <option value="{{ d.id }}"{% if request.GET.device == d.id|stringformat:"s" %} selected{% endif %}>{{ d.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="since">Since</label>
+      <input type="date" id="since" name="since" value="{{ request.GET.since }}">
+    </div>
+    <div class="field">
+      <label for="until">Until</label>
+      <input type="date" id="until" name="until" value="{{ request.GET.until }}">
+    </div>
+    <div class="field">
+      <label>&nbsp;</label>
+      <button type="submit">Filter</button>
+    </div>
+    <div class="field">
+      <label>&nbsp;</label>
+      <a href="{% url 'observations' %}" class="btn">Reset</a>
+    </div>
+    <div class="field">
+      <label>&nbsp;</label>
+      <a href="?{{ keepqs }}&export=csv" class="btn">Export CSV</a>
+    </div>
+  </form>
+
+  <!-- Top two cards -->
+  <div class="obs-top-grid">
+    <!-- Current unwhitelisted -->
+    <div class="obs-block">
+      <h3>Current detected unwhitelisted (last 10 min)</h3>
+      <div class="table-wrap">
+        <table class="table-tight">
+          <thead>
+            <tr>
+              <th>SSID</th>
+              <th>BSSID</th>
+              <th>Ch</th>
+              <th>Seen</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% if current_unwhitelisted %}
+              {% for o in current_unwhitelisted %}
+              <tr>
+                <td>{{ o.ssid|default:"&mdash;" }}</td>
+                <td class="mono">{{ o.bssid }}</td>
+                <td>{{ o.channel }}</td>
+                <td>{{ o.server_ts|date:"M j, Y, g:i a" }}</td>
+              </tr>
+              {% endfor %}
+            {% else %}
+              <tr>
+                <td colspan="4" class="empty">No unwhitelisted APs seen in the last 10 minutes.</td>
+              </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Recent alerts / suspicious -->
+    <div class="obs-block">
+      <h3>Recent alerts / observations</h3>
+      <div class="table-wrap">
+        <table class="table-tight">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>SSID</th>
+              <th>BSSID</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% if recent_alerts %}
+              {% for o in recent_alerts %}
+              <tr>
+                <td>{{ o.server_ts|date:"M j, Y, g:i a" }}</td>
+                <td>{{ o.ssid|default:"&mdash;" }}</td>
+                <td class="mono">{{ o.bssid }}</td>
+              </tr>
+              {% endfor %}
+            {% else %}
+              <tr>
+                <td colspan="3" class="empty">No recent alerts.</td>
+              </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
   </div>
 
-  <div class="field">
-    <label for="device">Device</label>
-    <select id="device" name="device">
-      <option value="">All devices</option>
-      {% for d in devices %}
-        <option value="{{ d.id }}" {% if request.GET.device == d.id|stringformat:"s" %}selected{% endif %}>{{ d.name }}</option>
-      {% endfor %}
-    </select>
+  <!-- All detected APs -->
+  <div class="obs-block" style="margin-top:16px;">
+    <h3>All detected APs <small style="color:var(--muted); font-weight:400;">Total: {{ page.paginator.count }}</small></h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Time (server)</th>
+            <th>Device</th>
+            <th>SSID</th>
+            <th>BSSID</th>
+            <th>Ch</th>
+            <th>Security</th>
+            <th>RSSI</th>
+            <th>Flagged</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if page.object_list %}
+            {% for o in page.object_list %}
+            <tr>
+              <td>{{ o.id }}</td>
+              <td>{{ o.server_ts|date:"M j, Y, g:i a" }}</td>
+              <td>{{ o.device.name if o.device }}</td>
+              <td>{{ o.ssid|default:"&mdash;" }}</td>
+              <td class="mono">{{ o.bssid }}</td>
+              <td>{{ o.channel }}</td>
+              <td>{{ o.security }}</td>
+              <td>{{ o.rssi_current }}</td>
+              <td>{% if o.is_flagged %}⚠️{% else %}ok{% endif %}</td>
+              <td><a href="{% url 'observation_detail' o.id %}" class="btn-link">Details</a></td>
+            </tr>
+            {% endfor %}
+          {% else %}
+            <tr>
+              <td colspan="10" class="empty">No logs available.</td>
+            </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- pagination -->
+    {% if page.paginator.num_pages > 1 %}
+    <div class="pagination">
+      {% if page.has_previous %}
+        <a href="?page={{ page.previous_page_number }}&{{ keepqs }}">Previous</a>
+      {% else %}
+        <span>Previous</span>
+      {% endif %}
+
+      <span class="current">Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+
+      {% if page.has_next %}
+        <a href="?page={{ page.next_page_number }}&{{ keepqs }}">Next</a>
+      {% else %}
+        <span>Next</span>
+      {% endif %}
+    </div>
+    {% endif %}
   </div>
 
-  <div class="field">
-    <label for="since">Since</label>
-    <input id="since" type="date" name="since" value="{{ request.GET.since }}">
-  </div>
-
-  <div class="field">
-    <label for="until">Until</label>
-    <input id="until" type="date" name="until" value="{{ request.GET.until }}">
-  </div>
-
-  <div class="field">
-    <label>&nbsp;</label>
-    <button type="submit">Filter</button>
-  </div>
-
-  <div class="field btn-inline">
-    <label>&nbsp;</label>
-    <a href="/ui/observations" class="btn-link">Reset</a>
-    <a href="?{{ request.GET.urlencode }}&export=csv" class="btn-link">Export CSV</a>
-  </div>
-</form>
-
-<!-- Table for Detected Unwhitelisted APs -->
-<h3>Current Detected Unwhitelisted APs</h3>
-<div class="table-wrap">
-  <table class="fixed">
-    <thead>
-      <tr>
-        <th>ID</th>
-        <th>Time (server)</th>
-        <th>Device</th>
-        <th>SSID</th>
-        <th>BSSID</th>
-        <th class="r">RSSI</th>
-        <th>Status</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for o in unwhitelisted %}
-      <tr>
-        <td><a href="/ui/observations/{{ o.id }}">{{ o.id }}</a></td>
-        <td>{{ o.server_ts|date:"M j, Y, g:i a" }}</td>
-        <td>{{ o.device.name }}</td>
-        <td>{{ o.ssid }}</td>
-        <td class="mono"><span class="pill">{{ o.bssid }}</span></td>
-        <td class="r">{{ o.rssi_current|default:"" }}</td>
-        <td>{{ o.match_status }}</td>
-      </tr>
-      {% empty %}
-      <tr><td colspan="7" class="empty">No unwhitelisted APs detected.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-
-<!-- Table for Recent Alerts -->
-<h3>Recent Alerts / Observations</h3>
-<div class="table-wrap">
-  <table class="fixed">
-    <thead>
-      <tr>
-        <th>ID</th>
-        <th>Time (server)</th>
-        <th>Device</th>
-        <th>SSID</th>
-        <th>BSSID</th>
-        <th class="r">RSSI</th>
-        <th>Status</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for alert in recent_alerts %}
-      <tr>
-        <td><a href="/ui/observations/{{ alert.id }}">{{ alert.id }}</a></td>
-        <td>{{ alert.server_ts|date:"M j, Y, g:i a" }}</td>
-        <td>{{ alert.device.name }}</td>
-        <td>{{ alert.ssid }}</td>
-        <td class="mono"><span class="pill">{{ alert.bssid }}</span></td>
-        <td class="r">{{ alert.rssi_current }}</td>
-        <td>{{ alert.match_status }}</td>
-      </tr>
-      {% empty %}
-      <tr><td colspan="7" class="empty">No recent alerts.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-
-<!-- Table for All Detected APs (Past Logs) -->
-<h3>All Detected APs</h3>
-<div class="table-wrap">
-  <table class="fixed">
-    <thead>
-      <tr>
-        <th>ID</th>
-        <th>Time (server)</th>
-        <th>Device</th>
-        <th>SSID</th>
-        <th>BSSID</th>
-        <th class="r">RSSI</th>
-        <th>Status</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for log in all_logs %}
-      <tr>
-        <td><a href="/ui/observations/{{ log.id }}">{{ log.id }}</a></td>
-        <td>{{ log.server_ts|date:"M j, Y, g:i a" }}</td>
-        <td>{{ log.device.name }}</td>
-        <td>{{ log.ssid }}</td>
-        <td class="mono"><span class="pill">{{ log.bssid }}</span></td>
-        <td class="r">{{ log.rssi_current }}</td>
-        <td>{{ log.match_status }}</td>
-      </tr>
-      {% empty %}
-      <tr><td colspan="7" class="empty">No logs available.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-
-<!-- Pagination -->
-<div class="pager">
-  {% if page.has_previous %}<a href="?page={{ page.previous_page_number }}&{{ keepqs }}">← Prev</a>{% endif %}
-  <span class="muted">Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
-  {% if page.has_next %}<a href="?page={{ page.next_page_number }}&{{ keepqs }}">Next →</a>{% endif %}
-</div>
-
+</main>
 {% endblock %}

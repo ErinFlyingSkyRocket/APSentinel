@@ -87,7 +87,7 @@ bool uploadDone = false;         // set true once successfully uploaded
 #define BOOT_BTN   0
 
 // ---------- CONFIG ----------
-#define FIXED_CH      11      // 1..13; set 0 to enable hopper
+#define FIXED_CH      0      // 1..13; set 0 to enable hopper
 #define DWELL_MS      800     // hopper dwell if FIXED_CH == 0
 #define MAX_CH        13
 #define PRINT_SECS    3       // force a refresh every N seconds even if no new APs
@@ -659,13 +659,21 @@ String buildJsonPayload() {
 }
 
 bool wifiEnsureConnected() {
+  // already up?
   if (WiFi.status() == WL_CONNECTED) {
     return true;
   }
 
-  // make sure we are not in promiscuous mode while connecting
+  // make 100% sure sniffing is OFF before we try to associate
   esp_wifi_set_promiscuous(false);
+  delay(200);  // let driver drain events
 
+  // make the Arduino WiFi behave like your tiny test sketch
+  WiFi.persistent(false);          // don't touch flash
+  WiFi.setAutoReconnect(false);
+  WiFi.setSleep(false);            // keep radio awake
+
+  // go to clean STA
   WiFi.mode(WIFI_STA);
   WiFi.disconnect(true, true);
   delay(200);
@@ -675,7 +683,7 @@ bool wifiEnsureConnected() {
 
   unsigned long t0 = millis();
   const unsigned long timeout = 20000;
-  while (WiFi.status() != WL_CONNECTED && millis() - t0 < timeout) {
+  while (WiFi.status() != WL_CONNECTED && (millis() - t0) < timeout) {
     Serial.print(".");
     delay(500);
   }
