@@ -41,7 +41,7 @@
     </div>
   </form>
 
-  <!-- Top two cards: side-by-side, each with own pagination -->
+  <!-- Top two cards -->
   <div class="obs-top-grid" style="display:flex; gap:1rem; align-items:flex-start; margin-bottom:1rem; flex-wrap:wrap;">
     <!-- Current unwhitelisted (last 10 min) -->
     <div class="obs-block" style="flex:1 1 320px;">
@@ -156,6 +156,9 @@
             <th>Security</th>
             <th>RSSI</th>
             <th>Flagged</th>
+            <!-- new -->
+            <th>Chain</th>
+            <th>Integrity</th>
             <th></th>
           </tr>
         </thead>
@@ -178,12 +181,27 @@
               <td>{{ o.security }}</td>
               <td>{{ o.rssi_current }}</td>
               <td>{% if o.is_flagged %}⚠️{% else %}ok{% endif %}</td>
+              <!-- new: show start of chain -->
+              <td>
+                {% if o.chain_hex %}
+                  {{ o.chain_hex|slice:":16" }}…
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td>
+                {% if o.integrity_ok %}
+                  ✅
+                {% else %}
+                  ❌
+                {% endif %}
+              </td>
               <td><a href="{% url 'observation_detail' o.id %}" class="btn-link">Details</a></td>
             </tr>
             {% endfor %}
           {% else %}
             <tr>
-              <td colspan="10" class="empty">No logs available.</td>
+              <td colspan="12" class="empty">No logs available.</td>
             </tr>
           {% endif %}
         </tbody>

@@ -12,7 +12,6 @@ from .models import (
 class AccessPointWhitelistEntryInline(admin.TabularInline):
     model = AccessPointWhitelistEntry
     extra = 1
-    # we expose is_active now so you can toggle rules directly
     fields = ("bssid", "security", "channel", "vendor_oui", "is_active")
     show_change_link = True
 
@@ -77,6 +76,9 @@ class AccessPointObservationAdmin(admin.ModelAdmin):
         "is_flagged",
         "risk_score",
         "server_ts",
+        # 👇 new
+        "chain_prefix",
+        "integrity_ok",
     )
     list_filter = (
         "match_status",
@@ -84,11 +86,12 @@ class AccessPointObservationAdmin(admin.ModelAdmin):
         "pmf_required",
         "is_flagged",
         "server_ts",
+        "integrity_ok",   # 👈 so you can filter broken ones later
     )
     search_fields = (
         "ssid",
         "bssid",
-        "device__name",   # your Device has 'name'
+        "device__name",
         "device__location",
         "canonical",
     )
@@ -101,6 +104,15 @@ class AccessPointObservationAdmin(admin.ModelAdmin):
         "sig_alg",
         "sig_r",
         "sig_s",
+        # 👇 new
+        "prev_chain_hash",
+        "chain_hash",
     )
     ordering = ("-server_ts",)
-    raw_id_fields = ("device",)  # nice when you have lots of observations
+    raw_id_fields = ("device",)
+
+    def chain_prefix(self, obj):
+        if obj.chain_hash:
+            return obj.chain_hash.hex()[:16]
+        return "-"
+    chain_prefix.short_description = "Chain"

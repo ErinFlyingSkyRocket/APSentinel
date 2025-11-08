@@ -4,6 +4,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 from base64 import b64encode  # used in _build_pem_from_xy
+from . import hashchain
 
 from django.http import JsonResponse, HttpResponseBadRequest, HttpResponseForbidden
 from django.views.decorators.csrf import csrf_exempt
@@ -219,10 +220,12 @@ def _verify_obs_signature(
 def ingest_observation(request):
     """
     Strict-ish ingest: ESP32 posts observations signed per-record.
+    Now also builds a per-device hash chain for chain-of-custody.
     """
     if request.method != "POST":
         return HttpResponseBadRequest("POST required")
 
+    # 1) parse JSON
     try:
         data = json.loads(request.body.decode("utf-8"))
     except Exception:
@@ -234,17 +237,15 @@ def ingest_observation(request):
     if not device_mac:
         return HttpResponseBadRequest("Device MAC required")
 
-    # Device.name is unique in your model, so prefer provided name
+    # 2) device
     device, _ = Device.objects.get_or_create(
         name=device_name,
         defaults={"is_active": True},
     )
-
-    # if admin disabled it in UI, refuse
     if not device.is_active:
         return HttpResponseForbidden("Device not allowed")
 
-    # make sure server knows the device public key
+    # 3) ensure pubkey
     device_pub_pem = getattr(device, "pubkey_pem", None)
     if not device_pub_pem:
         pubkey_block = device_block.get("pubkey") or {}
@@ -257,15 +258,12 @@ def ingest_observation(request):
         except Exception as e:
             logger.warning("Failed to build PEM from XY for %s: %s", device_mac, e)
             return HttpResponseForbidden("Bad public key")
-
         device.pubkey_pem = device_pub_pem
 
-    # update device heartbeat
     device.last_seen = dj_timezone.now()
-    # keep admin's is_active choice; we won't force it to True here
     device.save()
 
-    # observations must be a list
+    # 4) observations list
     obs_list = data.get("observations") or []
     if not isinstance(obs_list, list):
         return HttpResponseBadRequest("'observations' must be a list")
@@ -274,14 +272,20 @@ def ingest_observation(request):
     stored_ids = []
     rejected = 0
 
+    # 5) process
     with transaction.atomic():
         for o in obs_list:
             canonical = o.get("canonical")
             sig_block = o.get("sig") or {}
             hash_hex = o.get("hash_sha256")
 
-            # verify signature for this record
-            if not _verify_obs_signature(device_pub_pem, canonical, sig_block, hash_hex):
+            # verify signature
+            if not _verify_obs_signature(
+                device_pub_pem,
+                canonical,
+                sig_block,
+                hash_hex,
+            ):
                 rejected += 1
                 continue
 
@@ -314,6 +318,27 @@ def ingest_observation(request):
                 oui=oui,
             )
 
+            # 🔐 HASH CHAIN PART
+            canonical_bytes = (canonical or "").encode("utf-8")
+            payload_hash = hashchain.compute_payload_hash(canonical_bytes)
+
+            # make previous lookup deterministic
+            last_obs = (
+                AccessPointObservation.objects
+                .filter(device=device)
+                .order_by("-server_ts", "-id")  # 👈 add -id
+                .first()
+            )
+            prev_chain_hash = last_obs.chain_hash if last_obs else None
+
+            server_ts_iso = now.isoformat()
+            chain_hash = hashchain.compute_chain_hash(
+                prev_chain_hash=prev_chain_hash,
+                payload_hash=payload_hash,
+                server_ts_iso=server_ts_iso,
+            )
+
+            # create row
             obj = AccessPointObservation.objects.create(
                 device=device,
                 ssid=ssid,
@@ -339,6 +364,9 @@ def ingest_observation(request):
                 matched_entry=matched_entry,
                 match_status=status,
                 is_flagged=status not in ("WHITELISTED_STRONG", "WHITELISTED_WEAK"),
+                prev_chain_hash=prev_chain_hash,
+                chain_hash=chain_hash,
+                integrity_ok=True,
             )
             stored_ids.append(obj.id)
 

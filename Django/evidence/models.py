@@ -12,7 +12,7 @@ class AccessPointWhitelistGroup(models.Model):
     Example:
       name = "Hospital-WiFi Level 3"
       ssid = "Hospital-WiFi"
-      strict = True  -> only the entries under this group are allowed
+      strict = True  -> only the entries under this group are accepted
     """
     name = models.CharField(max_length=128, help_text="Friendly name, e.g. 'Ward 3A Wi-Fi'")
     ssid = models.CharField(max_length=64, db_index=True)
@@ -32,7 +32,6 @@ class AccessPointWhitelistGroup(models.Model):
         default=False,
         help_text="If True, ONLY entries under this group are accepted for this SSID.",
     )
-    # toggleable group
     is_active = models.BooleanField(
         default=True,
         help_text="Uncheck to temporarily disable this whitelist group.",
@@ -208,7 +207,6 @@ class AccessPointObservation(models.Model):
         null=True,
         help_text="Signature algorithm, e.g. 'ECDSA_P256_SHA256'.",
     )
-    # 80 was OK but 130 gives headroom for big hex
     sig_r = models.CharField(max_length=130, blank=True, null=True)
     sig_s = models.CharField(max_length=130, blank=True, null=True)
 
@@ -263,6 +261,22 @@ class AccessPointObservation(models.Model):
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
+    # 🔐 chain of custody
+    prev_chain_hash = models.BinaryField(
+        null=True,
+        blank=True,
+        help_text="Hash of previous observation for this device",
+    )
+    chain_hash = models.BinaryField(
+        null=True,
+        blank=True,
+        help_text="Hash linking previous chain to this observation",
+    )
+    integrity_ok = models.BooleanField(
+        default=True,
+        help_text="Set False if later verification fails",
+    )
+
     class Meta:
         indexes = [
             models.Index(fields=["ssid"]),
@@ -275,3 +289,11 @@ class AccessPointObservation(models.Model):
 
     def __str__(self):
         return f"{self.ssid or '<hidden>'} / {self.bssid}"
+
+    def chain_hex(self):
+        """
+        Return chain_hash as hex string for templates/admin.
+        """
+        if self.chain_hash:
+            return self.chain_hash.hex()
+        return ""
