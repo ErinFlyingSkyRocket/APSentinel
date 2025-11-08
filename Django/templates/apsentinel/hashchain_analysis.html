@@ -4,18 +4,71 @@
 <main style="padding:1.5rem;">
   <h1 class="page-title" style="font-size:1.4rem; color:#e5e7eb; margin-bottom:1rem;">ESP32 Evidence Integrity</h1>
 
-  <!-- Device filter -->
-  <form method="get" style="margin-bottom:1.25rem; display:flex; gap:1rem; flex-wrap:wrap;">
+  <!-- Filters -->
+  <form method="get" style="margin-bottom:1.25rem; display:flex; gap:1rem; flex-wrap:wrap; align-items:flex-end;">
+
+    <!-- Device (typeable dropdown) -->
     <div style="display:flex; flex-direction:column; gap:0.25rem;">
       <label for="device" style="color:#cbd5f5;">Device</label>
-      <select name="device" id="device" required
-              style="background:#111827; border:1px solid #1f2937; color:#e5e7eb; padding:0.4rem 0.5rem; border-radius:0.4rem; min-width:220px;">
-        <option value="">Select a device...</option>
+      <input list="device-list" name="device" id="device"
+             value="{% if selected_device %}{{ selected_device.id }}{% else %}{{ request.GET.device }}{% endif %}"
+             placeholder="Type or select device..."
+             style="background:#111827; border:1px solid #1f2937; color:#e5e7eb; padding:0.4rem 0.5rem; border-radius:0.4rem; min-width:220px;">
+      <datalist id="device-list">
         {% for d in devices %}
-          <option value="{{ d.id }}"{% if selected_device and d.id == selected_device.id %} selected{% endif %}>{{ d.name }}</option>
+          <option value="{{ d.id }}">{{ d.name }}</option>
         {% endfor %}
+      </datalist>
+      <small style="color:#6b7280; font-size:0.6rem;">Each ESP32 has its own chain</small>
+    </div>
+
+    <!-- SSID -->
+    <div style="display:flex; flex-direction:column; gap:0.25rem;">
+      <label for="ssid" style="color:#cbd5f5;">SSID contains</label>
+      <input type="text" name="ssid" id="ssid" value="{{ filter_ssid }}"
+             style="background:#111827; border:1px solid #1f2937; color:#e5e7eb; padding:0.4rem 0.5rem; border-radius:0.4rem; min-width:180px;">
+    </div>
+
+    <!-- BSSID -->
+    <div style="display:flex; flex-direction:column; gap:0.25rem;">
+      <label for="bssid" style="color:#cbd5f5;">BSSID</label>
+      <input type="text" name="bssid" id="bssid" value="{{ filter_bssid }}"
+             placeholder="AA:BB:CC:DD:EE:FF"
+             style="background:#111827; border:1px solid #1f2937; color:#e5e7eb; padding:0.4rem 0.5rem; border-radius:0.4rem; min-width:180px;">
+    </div>
+
+    <!-- Integrity -->
+    <div style="display:flex; flex-direction:column; gap:0.25rem;">
+      <label for="integrity" style="color:#cbd5f5;">Integrity</label>
+      <select name="integrity" id="integrity"
+              style="background:#111827; border:1px solid #1f2937; color:#e5e7eb; padding:0.4rem 0.5rem; border-radius:0.4rem;">
+        <option value="all"{% if filter_integrity == "all" %} selected{% endif %}>All</option>
+        <option value="ok"{% if filter_integrity == "ok" %} selected{% endif %}>Only OK</option>
+        <option value="bad"{% if filter_integrity == "bad" %} selected{% endif %}>Only failed</option>
       </select>
-      <small style="color:#6b7280; font-size:0.65rem;">Each ESP32 generates its own hash chain</small>
+    </div>
+
+    <!-- Since -->
+    <div style="display:flex; flex-direction:column; gap:0.25rem;">
+      <label for="since" style="color:#cbd5f5;">Since</label>
+      <input type="date" name="since" id="since" value="{{ filter_since }}"
+             style="background:#111827; border:1px solid #1f2937; color:#e5e7eb; padding:0.3rem 0.4rem; border-radius:0.4rem;">
+    </div>
+
+    <!-- Until -->
+    <div style="display:flex; flex-direction:column; gap:0.25rem;">
+      <label for="until" style="color:#cbd5f5;">Until</label>
+      <input type="date" name="until" id="until" value="{{ filter_until }}"
+             style="background:#111827; border:1px solid #1f2937; color:#e5e7eb; padding:0.3rem 0.4rem; border-radius:0.4rem;">
+    </div>
+
+    <!-- Limit -->
+    <div style="display:flex; flex-direction:column; gap:0.25rem; max-width:70px;">
+      <label for="limit" style="color:#cbd5f5;">Limit</label>
+      <input type="number" name="limit" id="limit"
+             value="{% if filter_limit %}{{ filter_limit }}{% else %}100{% endif %}"
+             min="1"
+             style="background:#111827; border:1px solid #1f2937; color:#e5e7eb; padding:0.3rem 0.4rem; border-radius:0.4rem;">
     </div>
 
     <div style="display:flex; align-items:flex-end;">
@@ -26,14 +79,8 @@
     </div>
   </form>
 
-  {% if error %}
-    <div style="background:#7f1d1d; color:#fee2e2; padding:0.5rem 0.75rem; border-radius:0.5rem; margin-bottom:1rem;">
-      {{ error }}
-    </div>
-  {% endif %}
-
   {% if selected_device %}
-    <!-- Summary boxes -->
+    <!-- summary cards -->
     <div style="display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:1.25rem;">
       <div style="background:#111827; border:1px solid #1f2937; border-radius:0.75rem; padding:0.6rem 1rem; min-width:120px;">
         <div style="font-size:0.7rem; color:#9ca3af;">Total records</div>
@@ -49,7 +96,7 @@
       </div>
     </div>
 
-    <!-- Charts -->
+    <!-- charts -->
     <div style="display:flex; flex-wrap:wrap; gap:1rem; margin-bottom:1.5rem;">
       <div style="flex:2 1 360px; background:#111827; border:1px solid #1f2937; border-radius:0.75rem; padding:0.75rem;">
         <h3 style="font-size:0.8rem; margin-bottom:0.4rem; color:#e5e7eb;">Timeline integrity</h3>
@@ -61,7 +108,7 @@
       </div>
     </div>
 
-    <!-- Table -->
+    <!-- table -->
     <div class="table-wrap" style="overflow-x:auto;">
       <table style="width:100%; border-collapse:collapse; font-size:0.78rem;">
         <thead>
@@ -100,16 +147,18 @@
             {% endfor %}
           {% else %}
             <tr>
-              <td colspan="9" style="padding:0.6rem; color:#9ca3af; background:#0f172a;">No observations for this device.</td>
+              <td colspan="9" style="padding:0.6rem; color:#9ca3af; background:#0f172a;">No observations matching filters.</td>
             </tr>
           {% endif %}
         </tbody>
       </table>
     </div>
 
-    <p style="color:#6b7280; font-size:0.7rem; margin-top:0.75rem;">
+    <p style="margin-top:0.75rem; color:#fbbf24; font-size:0.65rem;">
       ⚠️ Integrity validation ensures chain-of-custody of ESP32 records — it does not verify Access Point authenticity.
     </p>
+  {% else %}
+    <p style="color:#6b7280;">Select a device and click “Analyze”.</p>
   {% endif %}
 </main>
 
@@ -120,16 +169,15 @@
   <script>
     const timelineData = {{ chart_timeline|safe }};
     const bssidData = {{ chart_bssid|safe }};
-
-    // timeline chart
-    if (timelineData.length > 0) {
-      const ctx = document.getElementById('timelineChart').getContext('2d');
+    const timelineCanvas = document.getElementById('timelineChart');
+    if (timelineCanvas && timelineData.length > 0) {
+      const ctx = timelineCanvas.getContext('2d');
       const labels = timelineData.map(p => p.ts);
       const values = timelineData.map(p => p.ok ? 1 : 0);
       new Chart(ctx, {
         type: 'line',
         data: {
-          labels: labels,
+          labels,
           datasets: [{
             label: 'Integrity (1=OK, 0=Fail)',
             data: values,
@@ -137,7 +185,7 @@
             backgroundColor: 'rgba(96,165,250,0.15)',
             tension: 0.25,
             pointRadius: 2,
-            pointBackgroundColor: ctx => ctx.raw === 1 ? '#22c55e' : '#ef4444'
+            pointBackgroundColor: c => c.raw === 1 ? '#22c55e' : '#ef4444'
           }]
         },
         options: {
@@ -150,18 +198,16 @@
       });
     }
 
-    // bssid chart
-    if (bssidData.length > 0) {
-      const ctx2 = document.getElementById('bssidChart').getContext('2d');
-      const labels2 = bssidData.map(p => p.bssid);
-      const values2 = bssidData.map(p => p.count);
+    const bssidCanvas = document.getElementById('bssidChart');
+    if (bssidCanvas && bssidData.length > 0) {
+      const ctx2 = bssidCanvas.getContext('2d');
       new Chart(ctx2, {
         type: 'bar',
         data: {
-          labels: labels2,
+          labels: bssidData.map(p => p.bssid),
           datasets: [{
             label: 'Seen count',
-            data: values2,
+            data: bssidData.map(p => p.count),
             backgroundColor: 'rgba(59,130,246,0.5)',
             borderColor: '#3b82f6'
           }]

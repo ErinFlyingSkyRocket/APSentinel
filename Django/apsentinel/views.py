@@ -390,44 +390,132 @@ def ingest_observation(request):
 def hashchain_analysis(request):
     """
     UI page to view & verify the hash chain for ONE device (ESP32).
+    Supports extra filters (after chain build):
+      - ?ssid=Hospital
+      - ?bssid=AA:BB:...
+      - ?integrity=bad|ok|all
+      - ?since=2025-01-01
+      - ?until=2025-01-31
+      - ?limit=200
     """
     devices = Device.objects.filter(is_active=True).order_by("name")
     device_id = request.GET.get("device")
 
-    # base context
-    ctx = {
-        "devices": devices,
-        "selected_device": None,
-        "rows": [],
-        "chart_timeline": "[]",
-        "chart_bssid": "[]",
-        "totals": {"total": 0, "ok": 0, "bad": 0},
-    }
-
-    # first load: no device selected
+    # just render empty page if no device chosen
     if not device_id:
-        return render(request, "apsentinel/hashchain_analysis.html", ctx)
+        return render(
+            request,
+            "apsentinel/hashchain_analysis.html",
+            {
+                "devices": devices,
+                "selected_device": None,
+                "rows": [],
+                "chart_timeline": "[]",
+                "chart_bssid": "[]",
+                "totals": {"total": 0, "ok": 0, "bad": 0},
+                # pass filters back so form can keep values
+                "filter_ssid": "",
+                "filter_bssid": "",
+                "filter_integrity": "all",
+                "filter_since": "",
+                "filter_until": "",
+                "filter_limit": "",
+            },
+        )
 
-    # get device
     try:
         device = Device.objects.get(id=device_id)
     except Device.DoesNotExist:
-        ctx["error"] = "Device not found"
-        return render(request, "apsentinel/hashchain_analysis.html", ctx)
+        return render(
+            request,
+            "apsentinel/hashchain_analysis.html",
+            {
+                "devices": devices,
+                "selected_device": None,
+                "rows": [],
+                "chart_timeline": "[]",
+                "chart_bssid": "[]",
+                "totals": {"total": 0, "ok": 0, "bad": 0},
+                "error": "Device not found",
+            },
+        )
 
-    # get all observations for that device in chain order
+    # query all obs for this device, ordered
     obs_qs = (
         AccessPointObservation.objects
         .filter(device=device)
         .order_by("server_ts", "id")
     )
 
-    # run chain replay
-    rows, timeline_points, totals = _build_chain_rows_from_queryset(obs_qs)
+    # build full chain first
+    full_rows, full_timeline, full_totals = _build_chain_rows_from_queryset(obs_qs)
 
-    # build top-BSSID chart for this device
+    # ------------------------------------------------------------------
+    # apply UI filters on top of built rows
+    # ------------------------------------------------------------------
+    f_ssid = (request.GET.get("ssid") or "").strip()
+    f_bssid = (request.GET.get("bssid") or "").strip().upper()
+    f_integrity = request.GET.get("integrity") or "all"
+    f_since = (request.GET.get("since") or "").strip()
+    f_until = (request.GET.get("until") or "").strip()
+    f_limit = request.GET.get("limit") or ""
+
+    filtered_rows = []
+    for r in full_rows:
+        o = r["obs"]
+
+        # date filters
+        if f_since:
+            try:
+                since_dt = datetime.fromisoformat(f_since)
+                since_dt = dj_timezone.make_aware(since_dt)
+                if o.server_ts < since_dt:
+                    continue
+            except Exception:
+                pass
+        if f_until:
+            try:
+                until_dt = datetime.fromisoformat(f_until)
+                until_dt = dj_timezone.make_aware(until_dt)
+                if o.server_ts > until_dt:
+                    continue
+            except Exception:
+                pass
+
+        # ssid filter (contains, case-insensitive)
+        if f_ssid:
+            if not o.ssid or f_ssid.lower() not in o.ssid.lower():
+                continue
+
+        # bssid filter (exact-ish, upper)
+        if f_bssid:
+            if not o.bssid or o.bssid.upper() != f_bssid:
+                continue
+
+        # integrity filter
+        if f_integrity == "ok" and not r["ok"]:
+            continue
+        if f_integrity == "bad" and r["ok"]:
+            continue
+
+        filtered_rows.append(r)
+
+    # limit
+    if f_limit:
+        try:
+            lim = int(f_limit)
+            filtered_rows = filtered_rows[:max(lim, 1)]
+        except ValueError:
+            pass
+
+    # rebuild charts from filtered rows
+    timeline_points = [
+        {"ts": r["obs"].server_ts.isoformat(), "ok": r["ok"], "id": r["obs"].id}
+        for r in filtered_rows
+    ]
+
     bssid_counts = {}
-    for r in rows:
+    for r in filtered_rows:
         o = r["obs"]
         if o.bssid:
             bssid_counts[o.bssid] = bssid_counts.get(o.bssid, 0) + 1
@@ -436,14 +524,32 @@ def hashchain_analysis(request):
         {"bssid": b, "count": c} for (b, c) in top_bssid_items
     ])
 
-    ctx.update({
-        "selected_device": device,
-        "rows": rows,
-        "chart_timeline": json.dumps(timeline_points),
-        "chart_bssid": chart_bssid,
-        "totals": totals,
-    })
-    return render(request, "apsentinel/hashchain_analysis.html", ctx)
+    # totals: show both full and filtered? we can show filtered to match table
+    totals = {
+        "total": len(filtered_rows),
+        "ok": sum(1 for r in filtered_rows if r["ok"]),
+        "bad": sum(1 for r in filtered_rows if not r["ok"]),
+    }
+
+    return render(
+        request,
+        "apsentinel/hashchain_analysis.html",
+        {
+            "devices": devices,
+            "selected_device": device,
+            "rows": filtered_rows,
+            "chart_timeline": json.dumps(timeline_points),
+            "chart_bssid": chart_bssid,
+            "totals": totals,
+            # keep filters
+            "filter_ssid": f_ssid,
+            "filter_bssid": f_bssid,
+            "filter_integrity": f_integrity,
+            "filter_since": f_since,
+            "filter_until": f_until,
+            "filter_limit": f_limit,
+        },
+    )
 
 def _build_chain_rows_from_queryset(obs_qs):
     """
