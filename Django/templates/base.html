@@ -12,9 +12,10 @@
   <header>
     <nav>
       <a href="/" class="{% if request.path == '/' %}active{% endif %}">Dashboard</a>
-      <a href="/ui/observations" class="{% if request.path|slice:":16" == '/ui/observations' %}active{% endif %}">Observations</a>
-      <a href="/ui/devices" class="{% if request.path|slice:":11" == '/ui/devices' %}active{% endif %}">Devices</a>
-      <a href="/ui/whitelist" class="{% if request.path|slice:":13" == '/ui/whitelist' %}active{% endif %}">Whitelist</a>
+      <a href="/ui/observations" class="{% if request.path|slice:':16' == '/ui/observations' %}active{% endif %}">Observations</a>
+      <a href="/ui/devices" class="{% if request.path|slice:':11' == '/ui/devices' %}active{% endif %}">Devices</a>
+      <a href="/ui/whitelist" class="{% if request.path|slice:':13' == '/ui/whitelist' %}active{% endif %}">Whitelist</a>
+      <a href="/ui/hashchain" class="{% if request.path|slice:':13' == '/ui/hashchain' %}active{% endif %}">Hash Chain</a>
 
       <span class="spacer"></span>
 

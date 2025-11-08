@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block content %}
+
+<main>
+  <h1 class="page-title" style="font-size:1.4rem;">Hash Chain Integrity</h1>
+
+  <form method="get" class="filterbar" style="margin-bottom:1rem;">
+    <div class="field">
+      <label for="device">Device</label>
+      <select name="device" id="device" required>
+        <option value="">Select a device...</option>
+        {% for d in devices %}
+          <option value="{{ d.id }}"{% if selected_device and d.id == selected_device.id %} selected{% endif %}>{{ d.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label>&nbsp;</label>
+      <button type="submit">Analyze</button>
+    </div>
+  </form>
+
+  {% if error %}
+    <div class="alert" style="background:#fdd; color:#900; padding:0.5rem; border-radius:4px;">{{ error }}</div>
+  {% endif %}
+
+  {% if selected_device %}
+  <section>
+    <h2 style="font-size:1rem; margin-bottom:0.6rem;">
+      Device: {{ selected_device.name }}
+      <small style="font-weight:400; color:#666;">(Total records: {{ rows|length }})</small>
+    </h2>
+
+    <div class="table-wrap" style="overflow-x:auto;">
+      <table class="table-tight">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Server Time</th>
+            <th>SSID</th>
+            <th>BSSID</th>
+            <th>Expected prev</th>
+            <th>Stored prev</th>
+            <th>Expected chain</th>
+            <th>Stored chain</th>
+            <th>Integrity</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if rows %}
+            {% for row in rows %}
+            <tr>
+              <td>{{ row.obs.id }}</td>
+              <td>{{ row.obs.server_ts|date:"M j, Y, g:i:s a" }}</td>
+              <td>{{ row.obs.ssid|default:"—" }}</td>
+              <td class="mono">{{ row.obs.bssid }}</td>
+              <td class="mono" style="font-size:0.7rem;">{{ row.expected_prev|slice:":12" }}…</td>
+              <td class="mono" style="font-size:0.7rem;">{{ row.stored_prev|slice:":12" }}…</td>
+              <td class="mono" style="font-size:0.7rem;">{{ row.expected_chain|slice:":12" }}…</td>
+              <td class="mono" style="font-size:0.7rem;">{{ row.stored_chain|slice:":12" }}…</td>
+              <td>
+                {% if row.ok %}
+                  ✅
+                {% else %}
+                  ❌
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          {% else %}
+            <tr><td colspan="9" class="empty">No observations found for this device.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+</main>
+
+{% endblock %}

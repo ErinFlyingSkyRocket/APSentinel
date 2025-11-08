@@ -10,6 +10,7 @@ from django.http import JsonResponse, HttpResponseBadRequest, HttpResponseForbid
 from django.views.decorators.csrf import csrf_exempt
 from django.db import transaction
 from django.utils import timezone as dj_timezone
+from django.shortcuts import render
 
 from devices.models import Device
 from evidence.models import (
@@ -385,3 +386,81 @@ def ingest_observation(request):
             "ids": stored_ids,
         }
     )
+
+def hashchain_analysis(request):
+    """
+    UI page to view & verify the per-device hash chain.
+    Lets you pick a device, then it recomputes the chain in the same way
+    the ingest endpoint does, and shows where (if anywhere) it breaks.
+    """
+    # list devices so user can choose
+    devices = Device.objects.filter(is_active=True).order_by("name")
+    device_id = request.GET.get("device")
+
+    if not device_id:
+        # no device chosen yet -> just render selector
+        return render(request, "apsentinel/hashchain_analysis.html", {
+            "devices": devices,
+            "selected_device": None,
+            "rows": [],
+        })
+
+    # try to load selected device
+    try:
+        device = Device.objects.get(id=device_id)
+    except Device.DoesNotExist:
+        return render(request, "apsentinel/hashchain_analysis.html", {
+            "devices": devices,
+            "selected_device": None,
+            "rows": [],
+            "error": "Device not found",
+        })
+
+    # pull observations for this device in chronological order
+    # (oldest → newest) so we can replay the chain
+    obs_qs = (
+        AccessPointObservation.objects
+        .filter(device=device)
+        .order_by("server_ts", "id")
+    )
+
+    rows = []
+    # this must match your hashchain first-link rule
+    expected_prev = b"\x00" * 32
+
+    for obs in obs_qs:
+        # recompute payload hash exactly like ingest
+        canonical_bytes = (obs.canonical or "").encode("utf-8")
+        payload_hash = hashchain.compute_payload_hash(canonical_bytes)
+        server_ts_iso = obs.server_ts.isoformat()
+
+        # recompute the chain value we EXPECT for this row
+        expected_chain = hashchain.compute_chain_hash(
+            prev_chain_hash=expected_prev,
+            payload_hash=payload_hash,
+            server_ts_iso=server_ts_iso,
+        )
+
+        # what’s actually stored in DB
+        stored_prev = obs.prev_chain_hash or b""
+        stored_chain = obs.chain_hash or b""
+
+        ok = (stored_prev == expected_prev) and (stored_chain == expected_chain)
+
+        rows.append({
+            "obs": obs,
+            "expected_prev": expected_prev.hex(),
+            "stored_prev": stored_prev.hex() if stored_prev else "",
+            "expected_chain": expected_chain.hex(),
+            "stored_chain": stored_chain.hex() if stored_chain else "",
+            "ok": ok,
+        })
+
+        # advance the expected prev for the next record
+        expected_prev = expected_chain
+
+    return render(request, "apsentinel/hashchain_analysis.html", {
+        "devices": devices,
+        "selected_device": device,
+        "rows": rows,
+    })
