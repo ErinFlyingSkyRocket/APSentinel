@@ -6,8 +6,8 @@ from django.db.models import ProtectedError
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views.decorators.http import require_http_methods
 
-from evidence.models import AccessPointObservation  # FK check for delete
 from .models import Device
+from evidence.models import AccessPointObservation  # FK check for delete
 
 # only used for the "Generate ECDSA keypair" button
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -18,6 +18,9 @@ from cryptography.hazmat.primitives import serialization
 def devices_view(request):
     """
     List all registered devices.
+    We rely on:
+      - Device.is_active  -> your "rule" toggle
+      - Device.is_online  -> computed from last_seen (last 10 minutes)
     """
     devices = Device.objects.all().order_by("id")
     return render(request, "devices/list.html", {"devices": devices})

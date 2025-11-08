@@ -15,9 +15,10 @@
         <th style="width:14%">Name</th>
         <th style="width:14%">Last seen</th>
         <th style="width:14%">Location</th>
-        <th style="width:30%">Description</th>
-        <th style="width:12%">Status</th>
-        <th style="width:16%">Actions</th>
+        <th style="width:26%">Description</th>
+        <th style="width:8%">Rule</th>
+        <th style="width:10%">Status</th>
+        <th style="width:14%">Actions</th>
       </tr>
     </thead>
     <tbody>
@@ -39,6 +40,16 @@
             {{ d.description|default:"—" }}
           </td>
 
+          {# NEW: rule column, maps to Device.is_active #}
+          <td>
+            {% if d.is_active %}
+              <span class="badge-active">Active</span>
+            {% else %}
+              <span class="badge-inactive">Inactive</span>
+            {% endif %}
+          </td>
+
+          {# Status = online or not in last 10 minutes #}
           <td>
             {% if d.is_active and d.is_online %}
               <span class="badge-active">Online</span>
@@ -66,7 +77,7 @@
           </td>
         </tr>
       {% empty %}
-        <tr><td colspan="6" style="text-align:center;opacity:.7;">No devices yet.</td></tr>
+        <tr><td colspan="7" style="text-align:center;opacity:.7;">No devices yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>

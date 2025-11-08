@@ -14,6 +14,7 @@ class Device(models.Model):
 
     enrolled_at = models.DateTimeField(auto_now_add=True)
 
+    # this is your "rule active/inactive" toggle
     is_active = models.BooleanField(
         default=True,
         help_text="Uncheck to disable this device’s uploads."
@@ -21,6 +22,8 @@ class Device(models.Model):
 
     description = models.TextField(blank=True, null=True)
     location = models.CharField(max_length=128, blank=True, null=True)
+
+    # updated whenever the device sends an observation
     last_seen = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
@@ -28,9 +31,21 @@ class Device(models.Model):
 
     @property
     def is_online(self):
+        """
+        True if this device has been seen in the last 10 minutes.
+        This is what you'll show as 'Status'.
+        """
         if not self.last_seen:
             return False
         return timezone.now() - self.last_seen <= timedelta(minutes=10)
+
+    @property
+    def rule_active(self):
+        """
+        Alias to make templates clearer.
+        This is what you'll show as 'Rule Active'.
+        """
+        return self.is_active
 
     class Meta:
         indexes = [

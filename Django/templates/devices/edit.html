@@ -19,8 +19,12 @@
     <label for="description">Description</label>
     <textarea id="description" name="description" rows="3">{{ device.description|default_if_none:'' }}</textarea>
 
-    <label for="pubkey_pem">Public key (PEM, optional)</label>
-    <textarea id="pubkey_pem" name="pubkey_pem" rows="6" placeholder="-----BEGIN PUBLIC KEY-----">{{ device.pubkey_pem }}</textarea>
+    <label for="pubkey_pem">Public key (PEM)</label>
+    <textarea id="pubkey_pem" name="pubkey_pem" rows="6" readonly
+              style="width:100%;background:#151a24;color:#ccc;border:1px solid #333;
+                     border-radius:6px;cursor:not-allowed;opacity:0.8;"
+              title="Public key is read-only for security reasons">{{ device.pubkey_pem }}</textarea>
+    <small style="opacity:.7;">Public key is read-only and cannot be edited.</small>
 
     <label style="margin-top:10px; display:flex; gap:8px; align-items:center;">
       <input type="checkbox" name="is_active" {% if device.is_active %}checked{% endif %}>
