@@ -3,6 +3,7 @@ import json
 import logging
 from datetime import datetime
 from typing import Optional
+from base64 import b64encode  # used in _build_pem_from_xy
 
 from django.http import JsonResponse, HttpResponseBadRequest, HttpResponseForbidden
 from django.views.decorators.csrf import csrf_exempt
@@ -16,7 +17,7 @@ from evidence.models import (
     AccessPointWhitelistEntry,
 )
 
-# if you already have this helper, we'll use it
+# try to use your helper if it exists
 try:
     from .crypto_utils import verify_ecdsa_p256_sha256
 except Exception:  # fallback if not present
@@ -53,7 +54,6 @@ def _match_whitelist(ssid: str, bssid: str, security: str, channel: int, oui: st
       2) same SSID + security in that group (any BSSID)
       3) same SSID in non-strict group
       4) else -> unregistered / rejected
-    with extra channel/security mismatch states.
     """
     if not ssid:
         return None, None, "UNREGISTERED_AP"
@@ -104,19 +104,8 @@ def _xy_to_uncompressed_pubkey(x_hex: str, y_hex: str) -> bytes:
 def _build_pem_from_xy(x_hex: str, y_hex: str) -> str:
     """
     Build a SubjectPublicKeyInfo DER → PEM for P-256 from x/y.
-
-    This is the standard:
-    SEQUENCE(
-      SEQUENCE(1.2.840.10045.2.1, 1.2.840.10045.3.1.7),
-      BIT STRING(<uncompressed point>)
-    )
-
-    To keep it simple here, we emit the OpenSSL-style header and base64 ourselves.
     """
-    from base64 import b64encode
-
     # ASN.1 header for: ecPublicKey, prime256v1
-    # This is a fixed byte sequence for P-256 public keys.
     spki_prefix = bytes.fromhex(
         # SEQ
         "3059"
@@ -133,22 +122,31 @@ def _build_pem_from_xy(x_hex: str, y_hex: str) -> str:
     der = spki_prefix + pubkey
     b64 = b64encode(der).decode("ascii")
     lines = ["-----BEGIN PUBLIC KEY-----"]
-    # split into 64-char lines
     for i in range(0, len(b64), 64):
-        lines.append(b64[i : i + 64])
+        lines.append(b64[i: i + 64])
     lines.append("-----END PUBLIC KEY-----")
     return "\n".join(lines)
 
 
-def _verify_obs_signature(pem: str, canonical: str, sig_block: dict) -> bool:
+def _verify_obs_signature(
+    pem: str,
+    canonical: str,
+    sig_block: dict,
+    hash_hex: Optional[str] = None,
+) -> bool:
     """
-    Verify one observation:
-      - canonical: string the ESP32 signed
-      - sig_block: {"alg": "...", "r": "HEX", "s": "HEX"}
-    We recompute SHA-256(canonical) and verify ECDSA P-256 with (r,s).
-    We delegate to your existing crypto_utils if available.
+    Verify one observation.
+
+    ESP can send:
+      sig: {
+        "alg": "ECDSA_P256_SHA256",
+        "over": "SHA256(canonical)",
+        "r": "...",
+        "s": "..."
+      }
+    so if "over" says SHA256(canonical), we verify the hash.
     """
-    if not canonical or not sig_block:
+    if not pem or not canonical or not sig_block:
         return False
     if sig_block.get("alg") not in ("ECDSA_P256_SHA256", "ECDSA_P-256_SHA256"):
         return False
@@ -158,41 +156,69 @@ def _verify_obs_signature(pem: str, canonical: str, sig_block: dict) -> bool:
     if not r_hex or not s_hex:
         return False
 
-    # your helper probably expects a base64 DER sig or raw r/s — we don't know.
-    # simplest: pass raw hex r/s + canonical and let your helper deal with it.
-    if verify_ecdsa_p256_sha256 is None:
-        # if no helper, accept nothing
-        return False
+    over = sig_block.get("over")
 
+    # 1) try user helper
+    if verify_ecdsa_p256_sha256 is not None:
+        try:
+            if over == "SHA256(canonical)":
+                if not hash_hex:
+                    return False
+                msg = bytes.fromhex(hash_hex)
+                return verify_ecdsa_p256_sha256(
+                    pem_public_key=pem,
+                    message=msg,
+                    r_hex=r_hex,
+                    s_hex=s_hex,
+                )
+            else:
+                # legacy path
+                return verify_ecdsa_p256_sha256(
+                    pem_public_key=pem,
+                    message=canonical.encode("utf-8"),
+                    r_hex=r_hex,
+                    s_hex=s_hex,
+                )
+        except Exception:
+            return False
+
+    # 2) fallback: cryptography
     try:
-        ok = verify_ecdsa_p256_sha256(
-            pem_public_key=pem,
-            message=canonical.encode("utf-8"),
-            r_hex=r_hex,
-            s_hex=s_hex,
-        )
-    except TypeError:
-        # in case your helper has a slightly different signature
-        ok = False
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
 
-    return ok
+        public_key = serialization.load_pem_public_key(pem.encode("utf-8"))
+        r_int = int(r_hex, 16)
+        s_int = int(s_hex, 16)
+        der_sig = encode_dss_signature(r_int, s_int)
+
+        if over == "SHA256(canonical)":
+            if not hash_hex:
+                return False
+            public_key.verify(
+                der_sig,
+                bytes.fromhex(hash_hex),
+                ec.ECDSA(hashes.SHA256()),
+            )
+        else:
+            public_key.verify(
+                der_sig,
+                canonical.encode("utf-8"),
+                ec.ECDSA(hashes.SHA256()),
+            )
+        return True
+    except Exception:
+        return False
 
 
 # ---------------------------------------------------------------------
-# Ingest
+# Ingest endpoint
 # ---------------------------------------------------------------------
 @csrf_exempt
 def ingest_observation(request):
     """
-    Strict-ish ingest: uses the ESP32's per-record ECDSA P-256 signatures.
-    Flow:
-      - POST JSON with "device" and "observations"
-      - device contains mac and pubkey (x,y) on first run
-      - we store that PEM on the Device model (if the model has a field)
-      - for each observation:
-          * verify signature against stored PEM
-          * if ok -> save + whitelist evaluation
-          * if not ok -> skip
+    Strict-ish ingest: ESP32 posts observations signed per-record.
     """
     if request.method != "POST":
         return HttpResponseBadRequest("POST required")
@@ -204,19 +230,23 @@ def ingest_observation(request):
 
     device_block = data.get("device") or {}
     device_mac = device_block.get("mac")
+    device_name = device_block.get("name") or device_mac
     if not device_mac:
         return HttpResponseBadRequest("Device MAC required")
 
-    # get or create device
+    # Device.name is unique in your model, so prefer provided name
     device, _ = Device.objects.get_or_create(
-        mac=device_mac,
-        defaults={"name": device_mac, "is_active": True},
+        name=device_name,
+        defaults={"is_active": True},
     )
 
-    # ensure device has a public key PEM
+    # if admin disabled it in UI, refuse
+    if not device.is_active:
+        return HttpResponseForbidden("Device not allowed")
+
+    # make sure server knows the device public key
     device_pub_pem = getattr(device, "pubkey_pem", None)
     if not device_pub_pem:
-        # try to build from x/y in current payload
         pubkey_block = device_block.get("pubkey") or {}
         x_hex = pubkey_block.get("x")
         y_hex = pubkey_block.get("y")
@@ -228,20 +258,14 @@ def ingest_observation(request):
             logger.warning("Failed to build PEM from XY for %s: %s", device_mac, e)
             return HttpResponseForbidden("Bad public key")
 
-        # save on device if field exists
-        if hasattr(device, "pubkey_pem"):
-            device.pubkey_pem = device_pub_pem
+        device.pubkey_pem = device_pub_pem
 
     # update device heartbeat
     device.last_seen = dj_timezone.now()
-    device.is_active = True
-    # save all updated fields
-    try:
-        device.save()
-    except Exception:
-        # if model has no pubkey_pem field, saving may still succeed
-        device.save()
+    # keep admin's is_active choice; we won't force it to True here
+    device.save()
 
+    # observations must be a list
     obs_list = data.get("observations") or []
     if not isinstance(obs_list, list):
         return HttpResponseBadRequest("'observations' must be a list")
@@ -254,9 +278,10 @@ def ingest_observation(request):
         for o in obs_list:
             canonical = o.get("canonical")
             sig_block = o.get("sig") or {}
+            hash_hex = o.get("hash_sha256")
 
             # verify signature for this record
-            if not _verify_obs_signature(device_pub_pem, canonical, sig_block):
+            if not _verify_obs_signature(device_pub_pem, canonical, sig_block, hash_hex):
                 rejected += 1
                 continue
 
@@ -279,8 +304,6 @@ def ingest_observation(request):
             rssi_best = o.get("rssi_best")
             beacons = o.get("beacons")
             last_seen_ms = o.get("last_seen_ms")
-
-            hash_sha256 = o.get("hash_sha256")
 
             # whitelist decision
             matched_group, matched_entry, status = _match_whitelist(
@@ -307,7 +330,7 @@ def ingest_observation(request):
                 pmf_capable=bool(pmf_block.get("cap")),
                 pmf_required=bool(pmf_block.get("req")),
                 canonical=canonical,
-                hash_sha256=hash_sha256,
+                hash_sha256=hash_hex,
                 sig_alg=sig_block.get("alg"),
                 sig_r=sig_block.get("r"),
                 sig_s=sig_block.get("s"),

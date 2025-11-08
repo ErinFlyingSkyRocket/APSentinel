@@ -1,124 +1,130 @@
 {% extends "base.html" %}
 
 {% block content %}
-  <h2 class="page-title">Dashboard</h2>
+<main>
+  <h1 class="page-title" style="font-size:1.4rem;">Dashboard</h1>
 
-  <div class="cards" style="display:flex; gap:1rem; flex-wrap:wrap;">
-    <div class="card">
-      <div class="muted">Observations</div>
-      <div style="font-size:28px">{{ counts.observations }}</div>
+  <!-- top cards -->
+  <div class="cards" style="max-width:420px; margin-bottom:16px;">
+    <div class="card" style="text-align:left;">
+      <div style="color:var(--muted); font-size:0.7rem;">Observations</div>
+      <div style="font-size:2.4rem; font-weight:600; line-height:1;">{{ total_obs }}</div>
     </div>
-    <div class="card">
-      <div class="muted">Devices (active)</div>
-      <div style="font-size:28px">{{ counts.active_devices }}</div>
+    <div class="card" style="text-align:left;">
+      <div style="color:var(--muted); font-size:0.7rem;">Devices (active ≤ 1h)</div>
+      <div style="font-size:2.4rem; font-weight:600; line-height:1;">{{ active_device_count }}</div>
     </div>
   </div>
 
-  <h3 style="margin-top:2rem;">
-    Current detected unwhitelisted (last {{ cutoff_minutes }} min)
-  </h3>
-  {% if current_unwhitelisted %}
-    <table class="table">
-      <thead>
-        <tr>
-          <th>Time</th>
-          <th>SSID</th>
-          <th>BSSID</th>
-          <th>Security</th>
-          <th>Status</th>
-          <th>Device</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for o in current_unwhitelisted %}
-          <tr>
-            <td>{{ o.server_ts }}</td>
-            <td>{{ o.ssid|default:"<hidden>" }}</td>
-            <td class="mono">{{ o.bssid|default:"—" }}</td>
-            <td>{{ o.security|default:"—" }}</td>
-            <td>
-              <span style="background:#fee; color:#900; padding:2px 6px; border-radius:4px; font-size:12px;">
-                {{ o.match_status|default:"alert" }}
-              </span>
-            </td>
-            <td>{{ o.device.name|default:"—" }}</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  {% else %}
-    <p class="muted">No unwhitelisted APs detected in the last {{ cutoff_minutes }} minutes.</p>
-  {% endif %}
+  <!-- row: devices + unwhitelisted -->
+  <div class="dash-row" style="display:flex; gap:14px; flex-wrap:wrap; align-items:flex-start;">
+    <!-- ESP32 / sensor devices -->
+    <div class="obs-block" style="flex:1 1 360px; min-width:320px;">
+      <h3>ESP32 / Sensor devices</h3>
+      <div class="table-wrap">
+        <table class="table-tight">
+          <thead>
+            <tr>
+              <th>Device</th>
+              <th>Last seen</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in device_rows %}
+              <tr>
+                <td>{{ row.device.name }}</td>
+                <td>
+                  {% if row.last_seen %}
+                    {{ row.last_seen|date:"M j, Y, g:i a" }}
+                  {% else %}
+                    —
+                  {% endif %}
+                </td>
+                <td>
+                  {% if row.status == "online" %}
+                    <span class="badge badge-up">online</span>
+                  {% else %}
+                    <span class="badge badge-down">offline &gt; 1h</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="3" class="empty">No devices.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
 
-  <h3 style="margin-top:2rem;">Alert logs / recent observations</h3>
-  {% if latest_logs %}
-    <table class="table">
-      <thead>
-        <tr>
-          <th>Time</th>
-          <th>SSID</th>
-          <th>BSSID</th>
-          <th>Ch</th>
-          <th>Security</th>
-          <th>Device</th>
-          <th>Flagged</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for o in latest_logs %}
-          <tr>
-            <td>{{ o.server_ts }}</td>
-            <td>{{ o.ssid|default:"<hidden>" }}</td>
-            <td class="mono">{{ o.bssid|default:"—" }}</td>
-            <td>{{ o.channel|default:"—" }}</td>
-            <td>{{ o.security|default:"—" }}</td>
-            <td>{{ o.device.name|default:"—" }}</td>
-            <td>
-              {% if o.is_flagged %}
-                <span style="background:#fee; color:#900; padding:2px 6px; border-radius:4px; font-size:12px;">
-                  {{ o.match_status|default:"alert" }}
-                </span>
-              {% else %}
-                <span class="muted">ok</span>
-              {% endif %}
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  {% else %}
-    <p class="muted">No observations yet.</p>
-  {% endif %}
+    <!-- Unwhitelisted APs -->
+    <div class="obs-block" style="flex:1 1 360px; min-width:320px;">
+      <h3>Unwhitelisted APs (last 10 minutes)</h3>
+      <div class="table-wrap">
+        <table class="table-tight">
+          <thead>
+            <tr>
+              <th>SSID</th>
+              <th>BSSID</th>
+              <th>Dev</th>
+              <th>Last seen</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% if current_unwhitelisted %}
+              {% for o in current_unwhitelisted %}
+                <tr>
+                  <td>{{ o.ssid|default:"—" }}</td>
+                  <td class="mono">{{ o.bssid }}</td>
+                  <td>{{ o.device.name }}</td>
+                  <td>{{ o.server_ts|date:"M j, Y, g:i a" }}</td>
+                  <td><a class="btn-link" href="{% url 'observation_detail' o.id %}">Details</a></td>
+                </tr>
+              {% endfor %}
+            {% else %}
+              <tr><td colspan="5" class="empty">No unwhitelisted APs detected in the last 10 minutes.</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
 
-  <h3 style="margin-top:2rem;">All Detected APs</h3>
-  {% if all_ap_logs %}
-    <table class="table">
-      <thead>
-        <tr>
-          <th>Time</th>
-          <th>SSID</th>
-          <th>BSSID</th>
-          <th>Ch</th>
-          <th>Security</th>
-          <th>Device</th>
-          <th>Match Status</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for o in all_ap_logs %}
+  <!-- recent alerts below -->
+  <div class="obs-block" style="margin-top:14px;">
+    <h3>Alert logs / recent observations (latest 20)</h3>
+    <div class="table-wrap">
+      <table class="table-tight">
+        <thead>
           <tr>
-            <td>{{ o.server_ts }}</td>
-            <td>{{ o.ssid|default:"<hidden>" }}</td>
-            <td class="mono">{{ o.bssid|default:"—" }}</td>
-            <td>{{ o.channel|default:"—" }}</td>
-            <td>{{ o.security|default:"—" }}</td>
-            <td>{{ o.device.name|default:"—" }}</td>
-            <td>{{ o.match_status|default:"—" }}</td>
+            <th>Time</th>
+            <th>SSID</th>
+            <th>BSSID</th>
+            <th>Device</th>
+            <th></th>
           </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  {% else %}
-    <p class="muted">No AP logs found.</p>
-  {% endif %}
+        </thead>
+        <tbody>
+          {% if recent_alerts %}
+            {% for o in recent_alerts %}
+              <tr>
+                <td>{{ o.server_ts|date:"M j, Y, g:i a" }}</td>
+                <td>{{ o.ssid|default:"—" }}</td>
+                <td class="mono">{{ o.bssid }}</td>
+                <td>{{ o.device.name }}</td>
+                <td><a class="btn-link" href="{% url 'observation_detail' o.id %}">Details</a></td>
+              </tr>
+            {% endfor %}
+          {% else %}
+            <tr><td colspan="5" class="empty">No observations yet.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+    <p style="margin:8px 14px 12px; color:var(--muted); font-size:0.7rem;">
+      For full filtering and CSV export, go to the <a href="{% url 'observations' %}">Observations</a> page.
+    </p>
+  </div>
+</main>
 {% endblock %}

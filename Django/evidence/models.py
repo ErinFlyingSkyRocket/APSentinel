@@ -32,11 +32,10 @@ class AccessPointWhitelistGroup(models.Model):
         default=False,
         help_text="If True, ONLY entries under this group are accepted for this SSID.",
     )
-
-    # CHANGED: make this toggleable in admin/UI
+    # toggleable group
     is_active = models.BooleanField(
         default=True,
-        help_text="Uncheck to temporarily disable this whitelist group (all its entries will be ignored in matching).",
+        help_text="Uncheck to temporarily disable this whitelist group.",
     )
 
     created_at = models.DateTimeField(default=timezone.now)
@@ -47,7 +46,7 @@ class AccessPointWhitelistGroup(models.Model):
         verbose_name_plural = "AP Whitelist Groups"
         indexes = [
             models.Index(fields=["ssid"]),
-            models.Index(fields=["is_active"]),  # added for fast filtering
+            models.Index(fields=["is_active"]),
         ]
 
     def __str__(self):
@@ -56,14 +55,14 @@ class AccessPointWhitelistGroup(models.Model):
 
 class AccessPointWhitelistEntry(models.Model):
     """
-    Actual identifiers that belong to a whitelist group.
+    Actual identifiers (BSSID, security, channel) that belong to a whitelist group.
     """
     group = models.ForeignKey(
         AccessPointWhitelistGroup,
         on_delete=models.CASCADE,
         related_name="entries",
     )
-    # exact AP MAC, optional if group allows any BSSID for this SSID
+    # exact AP MAC, optional
     bssid = models.CharField(
         max_length=17,
         blank=True,
@@ -88,8 +87,6 @@ class AccessPointWhitelistEntry(models.Model):
         null=True,
         help_text="OUI prefix, e.g. 'F09FC2' (optional, from BSSID).",
     )
-
-    # CHANGED: make this toggleable too
     is_active = models.BooleanField(
         default=True,
         help_text="Uncheck to disable this exact AP entry without deleting it.",
@@ -103,7 +100,7 @@ class AccessPointWhitelistEntry(models.Model):
         verbose_name_plural = "AP Whitelist Entries"
         indexes = [
             models.Index(fields=["bssid"]),
-            models.Index(fields=["is_active"]),  # for queries like 'active entries for this SSID'
+            models.Index(fields=["is_active"]),
         ]
 
     def __str__(self):
@@ -115,8 +112,8 @@ class AccessPointWhitelistEntry(models.Model):
 # --------------------------------------------------------------------------
 class AccessPointObservation(models.Model):
     """
-    Observed Access Points (from scanners or ESP32 devices)
-    One JSON upload from the ESP32 will typically create multiple of these rows.
+    One observed AP (usually 1 row per BSSID per upload).
+    The ESP32 now signs each record; we store signature + canonical for chain-of-custody.
     """
     device = models.ForeignKey(
         "devices.Device",
@@ -193,7 +190,7 @@ class AccessPointObservation(models.Model):
     pmf_capable = models.BooleanField(default=False)
     pmf_required = models.BooleanField(default=False)
 
-    # integrity/signature
+    # integrity/signature (aligned with apsentinel/views.py)
     canonical = models.TextField(
         blank=True,
         null=True,
@@ -203,7 +200,7 @@ class AccessPointObservation(models.Model):
         max_length=64,
         blank=True,
         null=True,
-        help_text="SHA-256 hex digest of canonical string, from ESP32.",
+        help_text="SHA-256 hex digest of the canonical string (device-sent).",
     )
     sig_alg = models.CharField(
         max_length=64,
@@ -211,8 +208,9 @@ class AccessPointObservation(models.Model):
         null=True,
         help_text="Signature algorithm, e.g. 'ECDSA_P256_SHA256'.",
     )
-    sig_r = models.CharField(max_length=80, blank=True, null=True)
-    sig_s = models.CharField(max_length=80, blank=True, null=True)
+    # 80 was OK but 130 gives headroom for big hex
+    sig_r = models.CharField(max_length=130, blank=True, null=True)
+    sig_s = models.CharField(max_length=130, blank=True, null=True)
 
     # timestamps
     sensor_ts = models.DateTimeField(

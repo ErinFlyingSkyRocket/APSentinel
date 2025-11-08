@@ -2,7 +2,7 @@
 
 {% block content %}
 <main>
-  <h1 class="page-title">Observations</h1>
+  <h1 class="page-title" style="font-size:1.4rem;">Observations</h1>
 
   <!-- Filter bar -->
   <form method="get" class="filterbar">
@@ -41,12 +41,12 @@
     </div>
   </form>
 
-  <!-- Top two cards -->
-  <div class="obs-top-grid">
-    <!-- Current unwhitelisted -->
-    <div class="obs-block">
-      <h3>Current detected unwhitelisted (last 10 min)</h3>
-      <div class="table-wrap">
+  <!-- Top two cards: side-by-side, each with own pagination -->
+  <div class="obs-top-grid" style="display:flex; gap:1rem; align-items:flex-start; margin-bottom:1rem; flex-wrap:wrap;">
+    <!-- Current unwhitelisted (last 10 min) -->
+    <div class="obs-block" style="flex:1 1 320px;">
+      <h3 style="font-size:0.9rem; margin-bottom:0.5rem;">Current detected unwhitelisted (last 10 min)</h3>
+      <div class="table-wrap" style="overflow-x:auto;">
         <table class="table-tight">
           <thead>
             <tr>
@@ -57,8 +57,8 @@
             </tr>
           </thead>
           <tbody>
-            {% if current_unwhitelisted %}
-              {% for o in current_unwhitelisted %}
+            {% if flag_page.object_list %}
+              {% for o in flag_page.object_list %}
               <tr>
                 <td>{{ o.ssid|default:"—" }}</td>
                 <td class="mono">{{ o.bssid }}</td>
@@ -74,12 +74,27 @@
           </tbody>
         </table>
       </div>
+      {% if flag_page.paginator.num_pages > 1 %}
+      <div class="pagination" style="margin-top:0.4rem; font-size:0.7rem;">
+        {% if flag_page.has_previous %}
+          <a href="?flag_page={{ flag_page.previous_page_number }}&{{ keepqs }}">« Prev</a>
+        {% else %}
+          <span>« Prev</span>
+        {% endif %}
+        <span>Page {{ flag_page.number }} / {{ flag_page.paginator.num_pages }}</span>
+        {% if flag_page.has_next %}
+          <a href="?flag_page={{ flag_page.next_page_number }}&{{ keepqs }}">Next »</a>
+        {% else %}
+          <span>Next »</span>
+        {% endif %}
+      </div>
+      {% endif %}
     </div>
 
-    <!-- Recent alerts / suspicious -->
-    <div class="obs-block">
-      <h3>Recent alerts / observations</h3>
-      <div class="table-wrap">
+    <!-- Recent alerts / observations -->
+    <div class="obs-block" style="flex:1 1 320px;">
+      <h3 style="font-size:0.9rem; margin-bottom:0.5rem;">Recent alerts / observations</h3>
+      <div class="table-wrap" style="overflow-x:auto;">
         <table class="table-tight">
           <thead>
             <tr>
@@ -89,8 +104,8 @@
             </tr>
           </thead>
           <tbody>
-            {% if recent_alerts %}
-              {% for o in recent_alerts %}
+            {% if alert_page.object_list %}
+              {% for o in alert_page.object_list %}
               <tr>
                 <td>{{ o.server_ts|date:"M j, Y, g:i a" }}</td>
                 <td>{{ o.ssid|default:"—" }}</td>
@@ -105,13 +120,30 @@
           </tbody>
         </table>
       </div>
+      {% if alert_page.paginator.num_pages > 1 %}
+      <div class="pagination" style="margin-top:0.4rem; font-size:0.7rem;">
+        {% if alert_page.has_previous %}
+          <a href="?alert_page={{ alert_page.previous_page_number }}&{{ keepqs }}">« Prev</a>
+        {% else %}
+          <span>« Prev</span>
+        {% endif %}
+        <span>Page {{ alert_page.number }} / {{ alert_page.paginator.num_pages }}</span>
+        {% if alert_page.has_next %}
+          <a href="?alert_page={{ alert_page.next_page_number }}&{{ keepqs }}">Next »</a>
+        {% else %}
+          <span>Next »</span>
+        {% endif %}
+      </div>
+      {% endif %}
     </div>
   </div>
 
   <!-- All detected APs -->
   <div class="obs-block" style="margin-top:16px;">
-    <h3>All detected APs <small style="color:var(--muted); font-weight:400;">Total: {{ page.paginator.count }}</small></h3>
-    <div class="table-wrap">
+    <h3 style="font-size:0.9rem;">All detected APs
+      <small style="color:var(--muted, #666); font-weight:400;">Total: {{ page.paginator.count }}</small>
+    </h3>
+    <div class="table-wrap" style="overflow-x:auto;">
       <table>
         <thead>
           <tr>

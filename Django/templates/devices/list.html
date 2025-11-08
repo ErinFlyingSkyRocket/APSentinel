@@ -15,45 +15,40 @@
         <th style="width:14%">Name</th>
         <th style="width:14%">Last seen</th>
         <th style="width:14%">Location</th>
-        <th style="width:26%">Description</th>
-        <!-- NEW -->
-        <th style="width:8%">Status</th>
-        <th style="width:24%">Actions</th>
+        <th style="width:30%">Description</th>
+        <th style="width:12%">Status</th>
+        <th style="width:16%">Actions</th>
       </tr>
     </thead>
     <tbody>
       {% for d in devices %}
         <tr>
-          <!-- Name -->
           <td class="ellipsis ch-8" title="{{ d.name }}">
-            {{ d.name|truncatechars:8 }}
+            {{ d.name|truncatechars:12 }}
           </td>
 
-          <!-- Last seen -->
           <td>
             {% if d.last_seen %}{{ d.last_seen|timesince }} ago{% else %}—{% endif %}
           </td>
 
-          <!-- Location -->
           <td class="ellipsis ch-8" title="{{ d.location }}">
-            {{ d.location|truncatechars:8|default:"—" }}
+            {{ d.location|default:"—" }}
           </td>
 
-          <!-- Description -->
           <td class="description-box" title="{{ d.description }}">
             {{ d.description|default:"—" }}
           </td>
 
-          <!-- NEW: Status -->
           <td>
-            {% if d.is_active %}
-              <span class="badge-active">Active</span>
+            {% if d.is_active and d.is_online %}
+              <span class="badge-active">Online</span>
+            {% elif d.is_active %}
+              <span class="badge-inactive">Inactive (no data)</span>
             {% else %}
-              <span class="badge-inactive">Inactive</span>
+              <span class="badge-inactive">Disabled</span>
             {% endif %}
           </td>
 
-          <!-- Actions -->
           <td style="white-space: nowrap;">
             <a href="{% url 'edit_device' d.id %}"
                class="btn-link"

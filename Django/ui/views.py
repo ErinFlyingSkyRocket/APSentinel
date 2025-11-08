@@ -7,7 +7,7 @@ from django.core.paginator import Paginator
 from django.http import HttpResponse
 from django.utils.dateparse import parse_date
 from django.contrib.auth.decorators import login_required
-from django.db.models import Q
+from django.db.models import Q, Max
 from django.utils import timezone
 
 from devices.models import Device
@@ -16,18 +16,46 @@ from evidence.models import AccessPointObservation
 
 @login_required
 def dashboard(request):
-    # make dashboard + observations consistent: 10-minute “currently seen” window
     now = timezone.now()
-    cutoff = now - timedelta(minutes=10)
+    cutoff_10m = now - timedelta(minutes=10)
+    cutoff_1h = now - timedelta(hours=1)
 
+    # --- counts for the top cards ---
+    total_obs = AccessPointObservation.objects.count()
+    total_devices = Device.objects.count()
+
+    # --- active/offline devices (last seen ≤ 1h) ---
+    # get latest observation per device
+    latest_obs_by_device = (
+        AccessPointObservation.objects
+        .values("device_id")
+        .annotate(last_seen=Max("server_ts"))
+    )
+    device_last_seen = {row["device_id"]: row["last_seen"] for row in latest_obs_by_device}
+
+    device_rows = []
+    active_count = 0
+    for dev in Device.objects.order_by("name"):
+        last_seen = device_last_seen.get(dev.id)
+        if last_seen and last_seen >= cutoff_1h:
+            status = "online"
+            active_count += 1
+        else:
+            status = "offline"
+        device_rows.append({
+            "device": dev,
+            "last_seen": last_seen,
+            "status": status,
+        })
+
+    # --- unwhitelisted APs in last 10 min ---
     recent_flagged = (
         AccessPointObservation.objects
         .select_related("device")
-        .filter(is_flagged=True, server_ts__gte=cutoff)
+        .filter(is_flagged=True, server_ts__gte=cutoff_10m)
         .order_by("-server_ts")
     )
 
-    # dedupe by BSSID (or SSID fallback)
     current_unwhitelisted = []
     seen = set()
     for o in recent_flagged:
@@ -37,31 +65,38 @@ def dashboard(request):
         seen.add(key)
         current_unwhitelisted.append(o)
 
-    latest_logs = (
+    # --- recent alerts (short list) ---
+    recent_alerts = (
         AccessPointObservation.objects
+        .filter(is_flagged=True)
         .select_related("device")
-        .order_by("-server_ts")[:50]
+        .order_by("-server_ts")[:20]
     )
-
-    counts = {
-        "observations": AccessPointObservation.objects.count(),
-        "active_devices": Device.objects.filter(is_active=True).count(),
-    }
 
     return render(
         request,
         "ui/dashboard.html",
         {
-            "counts": counts,
+            "total_obs": total_obs,
+            "active_device_count": active_count,
+            "device_rows": device_rows,
             "current_unwhitelisted": current_unwhitelisted,
-            "latest_logs": latest_logs,
+            "recent_alerts": recent_alerts,
         },
     )
 
-
 @login_required
 def observations(request):
-    # base queryset
+    """
+    Main observations page:
+    - filterable, exportable main log (big table)  -> own paginator (?page=)
+    - 10-min flagged (current_unwhitelisted)       -> own paginator (?flag_page=)
+    - all flagged / recent alerts                  -> own paginator (?alert_page=)
+    """
+
+    # ----------------------
+    # 1) MAIN FILTERED QUERY
+    # ----------------------
     qs = (
         AccessPointObservation.objects
         .select_related("device", "matched_group", "matched_entry")
@@ -89,7 +124,7 @@ def observations(request):
         if d:
             qs = qs.filter(server_ts__date__lte=d)
 
-    # --- CSV export ---
+    # --- CSV export still uses the filtered qs ---
     if request.GET.get("export") == "csv":
         resp = HttpResponse(content_type="text/csv")
         resp["Content-Disposition"] = "attachment; filename=observations.csv"
@@ -119,27 +154,41 @@ def observations(request):
             ])
         return resp
 
-    # --- data for the top 2 cards ---
+    # ----------------------
+    # 2) SIDE TABLE 1: 10-min flagged
+    # ----------------------
     now = timezone.now()
     cutoff = now - timedelta(minutes=10)
-
-    current_unwhitelisted = (
+    flagged_10min_qs = (
         AccessPointObservation.objects
         .filter(is_flagged=True, server_ts__gte=cutoff)
+        .select_related("device")
         .order_by("-server_ts")
     )
+    flag_paginator = Paginator(flagged_10min_qs, 10)
+    flag_page_number = request.GET.get("flag_page")
+    flag_page = flag_paginator.get_page(flag_page_number)
 
-    recent_alerts = (
+    # ----------------------
+    # 3) SIDE TABLE 2: recent alerts (all flagged)
+    # ----------------------
+    alerts_qs = (
         AccessPointObservation.objects
         .filter(is_flagged=True)
-        .order_by("-server_ts")[:15]
+        .select_related("device")
+        .order_by("-server_ts")
     )
+    alerts_paginator = Paginator(alerts_qs, 10)
+    alert_page_number = request.GET.get("alert_page")
+    alert_page = alerts_paginator.get_page(alert_page_number)
 
-    # --- pagination for main log ---
+    # ----------------------
+    # 4) MAIN TABLE PAGINATION
+    # ----------------------
     paginator = Paginator(qs, 25)
     page = paginator.get_page(request.GET.get("page"))
 
-    # keep other query params when changing page
+    # keep other query params when changing page (for the main table)
     keep = request.GET.copy()
     if "page" in keep:
         del keep["page"]
@@ -151,13 +200,21 @@ def observations(request):
         request,
         "ui/observations.html",
         {
+            # main, filterable table
             "page": page,
-            "devices": devices,
             "keepqs": keepqs,
-            "current_unwhitelisted": current_unwhitelisted,
-            "recent_alerts": recent_alerts,
+            "devices": devices,
+            "q": q,
+            "selected_device": device_id,
+            "since": since,
+            "until": until,
+
+            # side-by-side tables (each paginated)
+            "flag_page": flag_page,
+            "alert_page": alert_page,
         },
     )
+
 
 @login_required
 def observations_unwhitelisted(request):

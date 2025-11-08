@@ -9,7 +9,7 @@ from django.views.decorators.http import require_http_methods
 from evidence.models import AccessPointObservation  # FK check for delete
 from .models import Device
 
-# Crypto for key generation (ECDSA P-256)
+# only used for the "Generate ECDSA keypair" button
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives import serialization
 
@@ -28,7 +28,7 @@ def devices_view(request):
 def add_device_view(request):
     """
     - action=gen: generate keypair and show on same page
-    - action=add: create device (now supports is_active toggle)
+    - action=add: create device (name required, pubkey optional)
     """
     ctx = {
         "public_pem": "",
@@ -36,12 +36,10 @@ def add_device_view(request):
         "generated": False,
     }
 
-    device_field_names = {f.name for f in Device._meta.get_fields()}
-
     if request.method == "POST":
         action = (request.POST.get("action") or "").strip()
 
-        # 1) generate keypair
+        # 1) generate ECDSA P-256 keypair for the user to copy to ESP32
         if action == "gen":
             private_key = ec.generate_private_key(ec.SECP256R1())
             private_pem = private_key.private_bytes(
@@ -55,38 +53,35 @@ def add_device_view(request):
                 format=serialization.PublicFormat.SubjectPublicKeyInfo,
             ).decode("utf-8")
 
-            ctx.update({
-                "public_pem": public_pem,
-                "private_pem": private_pem,
-                "generated": True,
-            })
+            ctx.update(
+                {
+                    "public_pem": public_pem,
+                    "private_pem": private_pem,
+                    "generated": True,
+                }
+            )
             return render(request, "devices/add_device.html", ctx)
 
-        # 2) add device
+        # 2) actually add device
         elif action == "add":
             name = (request.POST.get("name") or "").strip()
             pubkey_pem = (request.POST.get("pubkey_pem") or "").strip()
             location = (request.POST.get("location") or "").strip()
             description = (request.POST.get("description") or "").strip()
-            # read the checkbox
             is_active = "is_active" in request.POST
 
-            if not name or not pubkey_pem:
-                messages.error(request, "Name and public key are required.")
+            if not name:
+                messages.error(request, "Name is required.")
                 return redirect("/ui/devices/add")
 
             try:
-                create_kwargs = {
-                    "name": name,
-                    "pubkey_pem": pubkey_pem,
-                    "is_active": is_active,
-                }
-                if "location" in device_field_names:
-                    create_kwargs["location"] = location or None
-                if "description" in device_field_names:
-                    create_kwargs["description"] = description or None
-
-                Device.objects.create(**create_kwargs)
+                Device.objects.create(
+                    name=name,
+                    pubkey_pem=pubkey_pem or None,   # optional
+                    location=location or None,
+                    description=description or None,
+                    is_active=is_active,
+                )
                 messages.success(request, f"Device '{name}' added.")
             except IntegrityError:
                 messages.error(request, f"Device name '{name}' already exists.")
@@ -106,16 +101,21 @@ def add_device_view(request):
 @require_http_methods(["GET", "POST"])
 def edit_device_view(request, pk):
     """
-    Edit existing device, including enabling/disabling it.
+    Edit existing device: name, location, description, is_active, pubkey_pem.
     """
     device = get_object_or_404(Device, pk=pk)
 
     if request.method == "POST":
-        device.name = request.POST.get("name", device.name)
-        device.location = request.POST.get("location", device.location)
-        device.description = request.POST.get("description", device.description)
-        # checkbox: if it’s absent (unchecked), it won’t be in POST
+        device.name = (request.POST.get("name") or device.name).strip()
+        device.location = (request.POST.get("location") or "").strip() or None
+        device.description = (request.POST.get("description") or "").strip() or None
         device.is_active = "is_active" in request.POST
+
+        # allow admin to paste/replace PEM
+        new_pubkey = (request.POST.get("pubkey_pem") or "").strip()
+        if new_pubkey:
+            device.pubkey_pem = new_pubkey
+
         device.save()
 
         messages.success(request, f"Device '{device.name}' updated successfully.")
@@ -135,6 +135,7 @@ def delete_device_view(request, pk: int):
         dev.delete()
         messages.success(request, f"Device '{dev.name}' deleted.")
     except ProtectedError:
+        # device is still referenced by observations
         try:
             obs_count = AccessPointObservation.objects.filter(device=dev).count()
         except Exception:

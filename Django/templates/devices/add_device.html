@@ -2,7 +2,6 @@
 {% block content %}
 <h2>Add Device</h2>
 
-<!-- Generate keypair on the same page -->
 <form method="post" style="margin-bottom:16px;">
   {% csrf_token %}
   <input type="hidden" name="action" value="gen">
@@ -12,14 +11,13 @@
 {% if generated %}
   <div style="margin:12px 0; padding:12px; border:1px solid #333; border-radius:8px;">
     <h3>Generated Keys</h3>
-    <p><strong>Public Key (auto-filled below):</strong></p>
+    <p><strong>Public Key:</strong></p>
     <pre style="overflow-x:auto; background:#111; padding:8px; border-radius:6px;"><code>{{ public_pem }}</code></pre>
-    <p><strong>Private Key (copy into ESP32; NOT stored):</strong></p>
+    <p><strong>Private Key (put on ESP32):</strong></p>
     <pre style="overflow-x:auto; background:#111; padding:8px; border-radius:6px;"><code>{{ private_pem }}</code></pre>
   </div>
 {% endif %}
 
-<!-- Add device -->
 <form method="post" style="margin-top:20px;">
   {% csrf_token %}
   <input type="hidden" name="action" value="add">
@@ -27,7 +25,7 @@
   <label for="name">Name</label><br>
   <input id="name" name="name" required style="width:420px;"><br><br>
 
-  <label for="pubkey_pem">Public Key (PEM)</label><br>
+  <label for="pubkey_pem">Public Key (PEM, optional if device will self-enroll)</label><br>
   <textarea id="pubkey_pem" name="pubkey_pem" rows="8" style="width:420px;" placeholder="-----BEGIN PUBLIC KEY-----">{{ public_pem }}</textarea><br><br>
 
   <label for="location">Location</label><br>
@@ -36,10 +34,9 @@
   <label for="description">Description</label><br>
   <textarea id="description" name="description" rows="3" style="width:420px;"></textarea><br><br>
 
-  <!-- NEW: active toggle -->
   <label style="display:flex; gap:6px; align-items:center; margin-bottom:14px;">
     <input type="checkbox" name="is_active" checked>
-    Active (allow this device to send packets)
+    Active
   </label>
 
   <button type="submit">Add Device</button>

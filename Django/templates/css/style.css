@@ -190,10 +190,7 @@ footer {
 /* ======================================================
    Observations Page
    ====================================================== */
-.page-title {
-  font-size: 26px;
-  margin: 8px 0 14px;
-}
+
 
 .filterbar {
   display: grid;
@@ -583,20 +580,8 @@ select {
   overflow: hidden;
 }
 
-.obs-block h3 {
-  margin: 0;
-  padding: 10px 14px;
-  border-bottom: 1px solid rgba(255,255,255,0.03);
-  font-size: 15px;
-}
-
 .obs-block .actions {
   float: right;
-}
-
-.table-tight th,
-.table-tight td {
-  padding: 7px 10px;
 }
 
 /* paginator but not bullet points */
@@ -623,10 +608,73 @@ select {
   border-color: #294a94;
 }
 
+/* --- Observations tweaks for paginated top tables --- */
+
+/* make page title a bit smaller on this page */
+.page-title {
+  font-size: 1.4rem;
+}
+
+/* top two blocks: when the template uses flex, make them shrink nicely */
+.obs-top-grid {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+/* each top card */
+.obs-top-grid .obs-block {
+  flex: 1 1 320px;
+  margin-top: 0; /* because parent already has spacing */
+}
+
+/* smaller headers inside blocks */
+.obs-block h3 {
+  font-size: 0.9rem;
+}
+
+/* tighter table for the small cards */
+.table-tight th,
+.table-tight td {
+  padding: 6px 8px;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+/* small pagination for the top cards */
+.obs-block .pagination {
+  margin: 8px 0 0;
+  gap: 4px;
+}
+
+.obs-block .pagination a,
+.obs-block .pagination span {
+  font-size: 0.7rem;
+  padding: 3px 8px;
+}
+
+/* make sure main big table still scrolls nicely */
+.obs-block .table-wrap {
+  overflow-x: auto;
+}
+
+/* on wider screens we can go back to 2-column grid */
 @media (min-width: 950px) {
   .obs-top-grid {
     display: grid;
     grid-template-columns: 1.1fr 0.9fr;
     gap: 14px;
   }
+}
+
+.dash-row {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.dash-row .obs-block {
+  flex: 1 1 360px;
+  min-width: 320px;
 }

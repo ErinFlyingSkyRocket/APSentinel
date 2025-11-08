@@ -63,11 +63,9 @@ void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
 // ---------- YOUR SETTINGS ----------
 #define WIFI_SSID   "YOUR_WIFI_SSID"
 #define WIFI_PASS   "YOUR_WIFI_PASSWORD"
-
 // e.g. https://example.com/ingest
 #define SERVER_HOST "https://your.server.domain"     // include scheme
 #define SERVER_PATH "/api/v1/ingest"                 // your Flask endpoint path
-
 // Root CA PEM that issued your server cert (or self-signed root). Keep it short and correct.
 static const char *ROOT_CA_PEM = R"PEM(
 -----BEGIN CERTIFICATE-----
@@ -75,6 +73,7 @@ static const char *ROOT_CA_PEM = R"PEM(
 -----END CERTIFICATE-----
 )PEM";
 // -----------------------------------
+
 
 // --- auto-stop after 30s ---
 const uint32_t STOP_AFTER_MS = 30 * 1000UL;
@@ -595,62 +594,73 @@ void printTable() {
 // ---------- JSON BUILD + UPLOAD ----------
 String buildJsonPayload() {
   // Count rows
-  int n=0; for (int i=0;i<MAX_APS;i++) if (table[i].inUse) n++;
+  int n = 0;
+  for (int i = 0; i < MAX_APS; i++)
+    if (table[i].inUse) n++;
 
   // Generous capacity for up to MAX_APS rows
   DynamicJsonDocument doc(16384);
 
   // Device identity (used for enrollment)
-  String x = pubXHex();
-  String y = pubYHex();
+  String x   = pubXHex();
+  String y   = pubYHex();
   String mac = WiFi.macAddress();
 
   doc["device"]["type"] = "esp32-sniffer";
-  doc["device"]["mac"] = mac;
+  doc["device"]["mac"]  = mac;
+  doc["device"]["name"] = mac;          // <-- extra, helps server name it
   doc["device"]["pubkey"]["curve"] = "P-256";
-  doc["device"]["pubkey"]["x"] = x;
-  doc["device"]["pubkey"]["y"] = y;
+  doc["device"]["pubkey"]["x"]     = x;
+  doc["device"]["pubkey"]["y"]     = y;
+
   doc["meta"]["stopped_after_ms"] = STOP_AFTER_MS;
-  doc["meta"]["records"] = n;
+  doc["meta"]["records"]          = n;
 
   JsonArray arr = doc.createNestedArray("observations");
 
-  for (int i=0;i<MAX_APS;i++){
+  for (int i = 0; i < MAX_APS; i++) {
     if (!table[i].inUse) continue;
     Row &r = table[i];
 
     // canonical string -> hash
     String canon = canonicalRow(r);
-    String h = sha256Hex(canon);
+    String h     = sha256Hex(canon);
 
-    // sign
+    // sign the HASH
     String rHex, sHex;
     bool ok = ecdsaSignHashHex(h, rHex, sHex);
 
     JsonObject o = arr.createNestedObject();
-    o["ssid"] = r.ssid;
-    o["bssid"] = r.bssid;
-    o["oui"] = r.oui;
-    o["ch"] = r.ch;
-    o["rssi_best"] = r.rssiBest;
-    o["rssi_cur"]  = r.rssiCur;
-    o["beacons"]   = r.beacons;
+    o["ssid"]         = r.ssid;
+    o["bssid"]        = r.bssid;
+    o["oui"]          = r.oui;
+    o["ch"]           = r.ch;
+    o["rssi_best"]    = r.rssiBest;
+    o["rssi_cur"]     = r.rssiCur;
+    o["beacons"]      = r.beacons;
     o["last_seen_ms"] = r.lastSeenMs;
-    o["security"]  = r.sec;
-    o["rsn"]       = r.rsn;
-    o["akm"]       = r.akm;
+    o["security"]     = r.sec;
+    o["rsn"]          = r.rsn;
+    o["akm"]          = r.akm;
 
     JsonObject pmf = o.createNestedObject("pmf");
     pmf["cap"] = r.pmfCap;
     pmf["req"] = r.pmfReq;
 
-    o["canonical"] = canon;        // optional (helps server recompute hash)
+    // send both canonical and hash so server can re-hash if it wants
+    o["canonical"]   = canon;
     o["hash_sha256"] = h;
 
+    // signature block
     JsonObject sig = o.createNestedObject("sig");
     sig["alg"] = "ECDSA_P256_SHA256";
-    if (ok) { sig["r"]=rHex; sig["s"]=sHex; }
-    else    { sig["error"]="sign_failed"; }
+    sig["over"] = "SHA256(canonical)";    // <-- tell Django what we signed
+    if (ok) {
+      sig["r"] = rHex;
+      sig["s"] = sHex;
+    } else {
+      sig["error"] = "sign_failed";
+    }
   }
 
   String out;
