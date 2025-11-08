@@ -389,59 +389,84 @@ def ingest_observation(request):
 
 def hashchain_analysis(request):
     """
-    UI page to view & verify the per-device hash chain.
-    Lets you pick a device, then it recomputes the chain in the same way
-    the ingest endpoint does, and shows where (if anywhere) it breaks.
+    UI page to view & verify the hash chain for ONE device (ESP32).
     """
-    # list devices so user can choose
     devices = Device.objects.filter(is_active=True).order_by("name")
     device_id = request.GET.get("device")
 
-    if not device_id:
-        # no device chosen yet -> just render selector
-        return render(request, "apsentinel/hashchain_analysis.html", {
-            "devices": devices,
-            "selected_device": None,
-            "rows": [],
-        })
+    # base context
+    ctx = {
+        "devices": devices,
+        "selected_device": None,
+        "rows": [],
+        "chart_timeline": "[]",
+        "chart_bssid": "[]",
+        "totals": {"total": 0, "ok": 0, "bad": 0},
+    }
 
-    # try to load selected device
+    # first load: no device selected
+    if not device_id:
+        return render(request, "apsentinel/hashchain_analysis.html", ctx)
+
+    # get device
     try:
         device = Device.objects.get(id=device_id)
     except Device.DoesNotExist:
-        return render(request, "apsentinel/hashchain_analysis.html", {
-            "devices": devices,
-            "selected_device": None,
-            "rows": [],
-            "error": "Device not found",
-        })
+        ctx["error"] = "Device not found"
+        return render(request, "apsentinel/hashchain_analysis.html", ctx)
 
-    # pull observations for this device in chronological order
-    # (oldest → newest) so we can replay the chain
+    # get all observations for that device in chain order
     obs_qs = (
         AccessPointObservation.objects
         .filter(device=device)
         .order_by("server_ts", "id")
     )
 
+    # run chain replay
+    rows, timeline_points, totals = _build_chain_rows_from_queryset(obs_qs)
+
+    # build top-BSSID chart for this device
+    bssid_counts = {}
+    for r in rows:
+        o = r["obs"]
+        if o.bssid:
+            bssid_counts[o.bssid] = bssid_counts.get(o.bssid, 0) + 1
+    top_bssid_items = sorted(bssid_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+    chart_bssid = json.dumps([
+        {"bssid": b, "count": c} for (b, c) in top_bssid_items
+    ])
+
+    ctx.update({
+        "selected_device": device,
+        "rows": rows,
+        "chart_timeline": json.dumps(timeline_points),
+        "chart_bssid": chart_bssid,
+        "totals": totals,
+    })
+    return render(request, "apsentinel/hashchain_analysis.html", ctx)
+
+def _build_chain_rows_from_queryset(obs_qs):
+    """
+    Helper to replay the chain over an ordered queryset of observations.
+    Returns (rows, timeline_points, totals)
+    """
     rows = []
-    # this must match your hashchain first-link rule
+    timeline_points = []
     expected_prev = b"\x00" * 32
+    total_ok = 0
+    total_bad = 0
 
     for obs in obs_qs:
-        # recompute payload hash exactly like ingest
         canonical_bytes = (obs.canonical or "").encode("utf-8")
         payload_hash = hashchain.compute_payload_hash(canonical_bytes)
         server_ts_iso = obs.server_ts.isoformat()
 
-        # recompute the chain value we EXPECT for this row
         expected_chain = hashchain.compute_chain_hash(
             prev_chain_hash=expected_prev,
             payload_hash=payload_hash,
             server_ts_iso=server_ts_iso,
         )
 
-        # what’s actually stored in DB
         stored_prev = obs.prev_chain_hash or b""
         stored_chain = obs.chain_hash or b""
 
@@ -456,11 +481,23 @@ def hashchain_analysis(request):
             "ok": ok,
         })
 
-        # advance the expected prev for the next record
+        timeline_points.append({
+            "ts": obs.server_ts.isoformat(),
+            "ok": ok,
+            "id": obs.id,
+        })
+
+        if ok:
+            total_ok += 1
+        else:
+            total_bad += 1
+
+        # advance chain
         expected_prev = expected_chain
 
-    return render(request, "apsentinel/hashchain_analysis.html", {
-        "devices": devices,
-        "selected_device": device,
-        "rows": rows,
-    })
+    totals = {
+        "total": len(rows),
+        "ok": total_ok,
+        "bad": total_bad,
+    }
+    return rows, timeline_points, totals

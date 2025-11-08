@@ -1,80 +1,180 @@
 {% extends "base.html" %}
 {% block content %}
 
-<main>
-  <h1 class="page-title" style="font-size:1.4rem;">Hash Chain Integrity</h1>
+<main style="padding:1.5rem;">
+  <h1 class="page-title" style="font-size:1.4rem; color:#e5e7eb; margin-bottom:1rem;">ESP32 Evidence Integrity</h1>
 
-  <form method="get" class="filterbar" style="margin-bottom:1rem;">
-    <div class="field">
-      <label for="device">Device</label>
-      <select name="device" id="device" required>
+  <!-- Device filter -->
+  <form method="get" style="margin-bottom:1.25rem; display:flex; gap:1rem; flex-wrap:wrap;">
+    <div style="display:flex; flex-direction:column; gap:0.25rem;">
+      <label for="device" style="color:#cbd5f5;">Device</label>
+      <select name="device" id="device" required
+              style="background:#111827; border:1px solid #1f2937; color:#e5e7eb; padding:0.4rem 0.5rem; border-radius:0.4rem; min-width:220px;">
         <option value="">Select a device...</option>
         {% for d in devices %}
           <option value="{{ d.id }}"{% if selected_device and d.id == selected_device.id %} selected{% endif %}>{{ d.name }}</option>
         {% endfor %}
       </select>
+      <small style="color:#6b7280; font-size:0.65rem;">Each ESP32 generates its own hash chain</small>
     </div>
-    <div class="field">
-      <label>&nbsp;</label>
-      <button type="submit">Analyze</button>
+
+    <div style="display:flex; align-items:flex-end;">
+      <button type="submit"
+              style="background:#234ea5; border:none; color:white; padding:0.45rem 1.3rem; border-radius:0.4rem; cursor:pointer;">
+        Analyze
+      </button>
     </div>
   </form>
 
   {% if error %}
-    <div class="alert" style="background:#fdd; color:#900; padding:0.5rem; border-radius:4px;">{{ error }}</div>
+    <div style="background:#7f1d1d; color:#fee2e2; padding:0.5rem 0.75rem; border-radius:0.5rem; margin-bottom:1rem;">
+      {{ error }}
+    </div>
   {% endif %}
 
   {% if selected_device %}
-  <section>
-    <h2 style="font-size:1rem; margin-bottom:0.6rem;">
-      Device: {{ selected_device.name }}
-      <small style="font-weight:400; color:#666;">(Total records: {{ rows|length }})</small>
-    </h2>
+    <!-- Summary boxes -->
+    <div style="display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:1.25rem;">
+      <div style="background:#111827; border:1px solid #1f2937; border-radius:0.75rem; padding:0.6rem 1rem; min-width:120px;">
+        <div style="font-size:0.7rem; color:#9ca3af;">Total records</div>
+        <div style="font-size:1.3rem; color:#e5e7eb;">{{ totals.total }}</div>
+      </div>
+      <div style="background:#111827; border:1px solid #1f2937; border-radius:0.75rem; padding:0.6rem 1rem; min-width:120px;">
+        <div style="font-size:0.7rem; color:#9ca3af;">Integrity OK</div>
+        <div style="font-size:1.3rem; color:#d1fae5;">{{ totals.ok }}</div>
+      </div>
+      <div style="background:#111827; border:1px solid #1f2937; border-radius:0.75rem; padding:0.6rem 1rem; min-width:120px;">
+        <div style="font-size:0.7rem; color:#9ca3af;">Integrity failed</div>
+        <div style="font-size:1.3rem; color:#fecaca;">{{ totals.bad }}</div>
+      </div>
+    </div>
 
+    <!-- Charts -->
+    <div style="display:flex; flex-wrap:wrap; gap:1rem; margin-bottom:1.5rem;">
+      <div style="flex:2 1 360px; background:#111827; border:1px solid #1f2937; border-radius:0.75rem; padding:0.75rem;">
+        <h3 style="font-size:0.8rem; margin-bottom:0.4rem; color:#e5e7eb;">Timeline integrity</h3>
+        <canvas id="timelineChart" height="120"></canvas>
+      </div>
+      <div style="flex:1 1 280px; background:#111827; border:1px solid #1f2937; border-radius:0.75rem; padding:0.75rem;">
+        <h3 style="font-size:0.8rem; margin-bottom:0.4rem; color:#e5e7eb;">Top BSSIDs seen</h3>
+        <canvas id="bssidChart" height="120"></canvas>
+      </div>
+    </div>
+
+    <!-- Table -->
     <div class="table-wrap" style="overflow-x:auto;">
-      <table class="table-tight">
+      <table style="width:100%; border-collapse:collapse; font-size:0.78rem;">
         <thead>
-          <tr>
-            <th>ID</th>
-            <th>Server Time</th>
-            <th>SSID</th>
-            <th>BSSID</th>
-            <th>Expected prev</th>
-            <th>Stored prev</th>
-            <th>Expected chain</th>
-            <th>Stored chain</th>
-            <th>Integrity</th>
+          <tr style="background:#0f172a; color:#e5e7eb;">
+            <th style="text-align:left; padding:0.5rem;">ID</th>
+            <th style="text-align:left; padding:0.5rem;">Time</th>
+            <th style="text-align:left; padding:0.5rem;">SSID</th>
+            <th style="text-align:left; padding:0.5rem;">BSSID</th>
+            <th style="text-align:left; padding:0.5rem;">Expected prev</th>
+            <th style="text-align:left; padding:0.5rem;">Stored prev</th>
+            <th style="text-align:left; padding:0.5rem;">Expected chain</th>
+            <th style="text-align:left; padding:0.5rem;">Stored chain</th>
+            <th style="text-align:left; padding:0.5rem;">Integrity</th>
           </tr>
         </thead>
         <tbody>
           {% if rows %}
             {% for row in rows %}
-            <tr>
-              <td>{{ row.obs.id }}</td>
-              <td>{{ row.obs.server_ts|date:"M j, Y, g:i:s a" }}</td>
-              <td>{{ row.obs.ssid|default:"—" }}</td>
-              <td class="mono">{{ row.obs.bssid }}</td>
-              <td class="mono" style="font-size:0.7rem;">{{ row.expected_prev|slice:":12" }}…</td>
-              <td class="mono" style="font-size:0.7rem;">{{ row.stored_prev|slice:":12" }}…</td>
-              <td class="mono" style="font-size:0.7rem;">{{ row.expected_chain|slice:":12" }}…</td>
-              <td class="mono" style="font-size:0.7rem;">{{ row.stored_chain|slice:":12" }}…</td>
-              <td>
+            <tr {% if not row.ok %}style="background:#431717;"{% else %}style="background:#0f172a;"{% endif %}>
+              <td style="padding:0.4rem 0.5rem; color:#e5e7eb;">{{ row.obs.id }}</td>
+              <td style="padding:0.4rem 0.5rem; color:#e5e7eb;">{{ row.obs.server_ts|date:"M j, Y, g:i:s a" }}</td>
+              <td style="padding:0.4rem 0.5rem; color:#e5e7eb;">{{ row.obs.ssid|default:"—" }}</td>
+              <td style="padding:0.4rem 0.5rem; color:#cbd5f5;" class="mono">{{ row.obs.bssid }}</td>
+              <td style="padding:0.4rem 0.5rem; color:#9ca3af;" class="mono">{{ row.expected_prev|slice:":14" }}…</td>
+              <td style="padding:0.4rem 0.5rem; color:#9ca3af;" class="mono">{{ row.stored_prev|slice:":14" }}…</td>
+              <td style="padding:0.4rem 0.5rem; color:#9ca3af;" class="mono">{{ row.expected_chain|slice:":14" }}…</td>
+              <td style="padding:0.4rem 0.5rem; color:#9ca3af;" class="mono">{{ row.stored_chain|slice:":14" }}…</td>
+              <td style="padding:0.4rem 0.5rem;">
                 {% if row.ok %}
-                  ✅
+                  <span style="color:#bbf7d0;">✅</span>
                 {% else %}
-                  ❌
+                  <span style="color:#fecaca;">❌</span>
                 {% endif %}
               </td>
             </tr>
             {% endfor %}
           {% else %}
-            <tr><td colspan="9" class="empty">No observations found for this device.</td></tr>
+            <tr>
+              <td colspan="9" style="padding:0.6rem; color:#9ca3af; background:#0f172a;">No observations for this device.</td>
+            </tr>
           {% endif %}
         </tbody>
       </table>
     </div>
-  </section>
+
+    <p style="color:#6b7280; font-size:0.7rem; margin-top:0.75rem;">
+      ⚠️ Integrity validation ensures chain-of-custody of ESP32 records — it does not verify Access Point authenticity.
+    </p>
   {% endif %}
 </main>
 
+{% endblock %}
+
+{% block scripts %}
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    const timelineData = {{ chart_timeline|safe }};
+    const bssidData = {{ chart_bssid|safe }};
+
+    // timeline chart
+    if (timelineData.length > 0) {
+      const ctx = document.getElementById('timelineChart').getContext('2d');
+      const labels = timelineData.map(p => p.ts);
+      const values = timelineData.map(p => p.ok ? 1 : 0);
+      new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Integrity (1=OK, 0=Fail)',
+            data: values,
+            borderColor: '#60a5fa',
+            backgroundColor: 'rgba(96,165,250,0.15)',
+            tension: 0.25,
+            pointRadius: 2,
+            pointBackgroundColor: ctx => ctx.raw === 1 ? '#22c55e' : '#ef4444'
+          }]
+        },
+        options: {
+          plugins: { legend: { labels: { color: '#e5e7eb' } } },
+          scales: {
+            x: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.1)' } },
+            y: { min: 0, max: 1, ticks: { stepSize: 1, color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.1)' } }
+          }
+        }
+      });
+    }
+
+    // bssid chart
+    if (bssidData.length > 0) {
+      const ctx2 = document.getElementById('bssidChart').getContext('2d');
+      const labels2 = bssidData.map(p => p.bssid);
+      const values2 = bssidData.map(p => p.count);
+      new Chart(ctx2, {
+        type: 'bar',
+        data: {
+          labels: labels2,
+          datasets: [{
+            label: 'Seen count',
+            data: values2,
+            backgroundColor: 'rgba(59,130,246,0.5)',
+            borderColor: '#3b82f6'
+          }]
+        },
+        options: {
+          indexAxis: 'y',
+          plugins: { legend: { labels: { color: '#e5e7eb' } } },
+          scales: {
+            x: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.08)' } },
+            y: { ticks: { color: '#94a3b8' }, grid: { display:false } }
+          }
+        }
+      });
+    }
+  </script>
 {% endblock %}
