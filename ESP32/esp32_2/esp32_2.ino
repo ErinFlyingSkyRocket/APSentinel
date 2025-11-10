@@ -75,7 +75,6 @@ static const char *ROOT_CA_PEM = R"PEM(
 // -----------------------------------
 
 
-
 // --- auto-stop after 30s ---
 const uint32_t STOP_AFTER_MS = 30 * 1000UL;
 uint32_t startMs = 0;
@@ -526,26 +525,42 @@ void upsertAP(const String& ssid, const String& bssid, const String& oui,
       return;
     }
   }
-  for (int i=0;i<MAX_APS;i++){
-    if (!table[i].inUse) {
-      table[i].inUse = true;
-      table[i].ssid = ssid.length()?ssid:"<none>";
-      table[i].bssid = bssid;
-      table[i].oui = oui;
-      table[i].rssiCur = rssi;
-      table[i].rssiBest = rssi;
-      table[i].ch = ch;
-      table[i].beacons = 1;
-      table[i].lastSeenMs = millis();
-      table[i].sec = sec;
-      table[i].rsn = rsn;
-      table[i].akm = akm;
-      table[i].pmfCap = pmfCap;
-      table[i].pmfReq = pmfReq;
-      newData = true;
-      return;
+  int freeIdx = -1;
+for (int i = 0; i < MAX_APS; i++) {
+  if (!table[i].inUse) {
+    freeIdx = i;
+    break;
+  }
+}
+
+// if no free slot, evict weakest (or stalest) AP
+if (freeIdx == -1) {
+  int worst = 0;
+  for (int i = 1; i < MAX_APS; i++) {
+    // Example policy: lowest best RSSI; you can also factor in lastSeenMs
+    if (table[i].rssiBest < table[worst].rssiBest) {
+      worst = i;
     }
   }
+  freeIdx = worst;
+}
+
+Row &nr = table[freeIdx];
+nr.inUse      = true;
+nr.ssid       = ssid.length() ? ssid : "<none>";
+nr.bssid      = bssid;
+nr.oui        = oui;
+nr.rssiCur    = rssi;
+nr.rssiBest   = rssi;
+nr.ch         = ch;
+nr.beacons    = 1;
+nr.lastSeenMs = millis();
+nr.sec        = sec;
+nr.rsn        = rsn;
+nr.akm        = akm;
+nr.pmfCap     = pmfCap;
+nr.pmfReq     = pmfReq;
+newData       = true;
 }
 
 // promiscuous callback
