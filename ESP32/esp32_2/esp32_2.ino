@@ -75,6 +75,7 @@ static const char *ROOT_CA_PEM = R"PEM(
 // -----------------------------------
 
 
+
 // --- auto-stop after 30s ---
 const uint32_t STOP_AFTER_MS = 30 * 1000UL;
 uint32_t startMs = 0;
@@ -93,6 +94,11 @@ bool uploadDone = false;         // set true once successfully uploaded
 #define MAX_APS       80
 #define MIN_RSSI      -95     // filter out very weak beacons
 #define SSID_FILTER   ""      // substring to match ("" = no filter)
+// ----------------------------
+
+// Optional explicit channel list (set empty {} to use 1..MAX_CH)
+static const uint8_t CHANNEL_LIST[] = { 1, 6, 11 }; // <- edit this
+static const size_t CHANNEL_LIST_LEN = sizeof(CHANNEL_LIST) / sizeof(CHANNEL_LIST[0]);
 // ----------------------------
 
 typedef struct {
@@ -794,11 +800,14 @@ void setup() {
   esp_wifi_set_promiscuous_filter(&f);
   esp_wifi_set_promiscuous(true);
 
-  if (FIXED_CH) {
+    if (FIXED_CH) {
     esp_wifi_set_channel(FIXED_CH, WIFI_SECOND_CHAN_NONE);
     Serial.printf("Listening on fixed channel %d\n", FIXED_CH);
   } else {
-    Serial.println("Hopper mode 1..13");
+    // set initial channel to first in channel list (if any) or 1
+    uint8_t initial_ch = (CHANNEL_LIST_LEN>0) ? CHANNEL_LIST[0] : 1;
+    esp_wifi_set_channel(initial_ch, WIFI_SECOND_CHAN_NONE);
+    Serial.printf("Hopper mode, initial channel %u\n", initial_ch);
   }
 
   startMs = millis();
@@ -852,10 +861,25 @@ void loop() {
 
   // while sniffing
   if (FIXED_CH == 0) {
-    for (uint8_t ch=1; ch<=MAX_CH; ch++){
-      esp_wifi_set_channel(ch, WIFI_SECOND_CHAN_NONE);
-      uint32_t t0 = millis();
-      while (millis() - t0 < DWELL_MS) delay(5);
+    if (CHANNEL_LIST_LEN > 0) {
+      for (size_t idx=0; idx<CHANNEL_LIST_LEN && !sniffStopped; ++idx) {
+        uint8_t ch = CHANNEL_LIST[idx];
+        esp_wifi_set_channel(ch, WIFI_SECOND_CHAN_NONE);
+        Serial.printf("[HOP] switch to channel %u\n", ch);
+        uint32_t t0 = millis();
+        while ((millis() - t0) < DWELL_MS && !sniffStopped) {
+          delay(5); // small sleep to allow packets to arrive
+        }
+      }
+    } else {
+      for (uint8_t ch=1; ch<=MAX_CH && !sniffStopped; ++ch) {
+        esp_wifi_set_channel(ch, WIFI_SECOND_CHAN_NONE);
+        Serial.printf("[HOP] switch to channel %u\n", ch);
+        uint32_t t0 = millis();
+        while ((millis() - t0) < DWELL_MS && !sniffStopped) {
+          delay(5);
+        }
+      }
     }
   } else {
     delay(50);
