@@ -6,7 +6,7 @@ from django.contrib.auth import views as auth_views
 from .views import health, ingest_observation, hashchain_analysis
 from ui.views import dashboard, observations, observation_detail, observations_unwhitelisted
 from devices.views import devices_view, add_device_view, delete_device_view, edit_device_view
-from evidence.views import latest_observation, whitelist_list, whitelist_add, whitelist_edit, whitelist_delete, whitelist_entry_delete, esp32_ingest
+from evidence.views import latest_observation, whitelist_list, whitelist_add, whitelist_edit, whitelist_delete, whitelist_entry_delete
 
 urlpatterns = [
     path("", dashboard, name="dashboard"),
@@ -37,9 +37,6 @@ urlpatterns = [
     path("ui/whitelist/<int:pk>/edit", whitelist_edit, name="whitelist_edit"),
     path("ui/whitelist/<int:pk>/delete", whitelist_delete, name="whitelist_delete"),
     path("ui/whitelist/entry/<int:pk>/delete", whitelist_entry_delete, name="whitelist_entry_delete"),
-
-    # ESP32 test ingest
-    path("ingest/esp32/", esp32_ingest, name="esp32_ingest"),
 
     # Auth
     path("accounts/login/", auth_views.LoginView.as_view(template_name="registration/login.html"), name="login"),

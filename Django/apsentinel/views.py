@@ -3,8 +3,7 @@ import json
 import logging
 from datetime import datetime
 from typing import Optional
-from base64 import b64encode  # used in _build_pem_from_xy
-from . import hashchain
+from base64 import b64encode
 
 from django.http import JsonResponse, HttpResponseBadRequest, HttpResponseForbidden
 from django.views.decorators.csrf import csrf_exempt
@@ -18,6 +17,8 @@ from evidence.models import (
     AccessPointWhitelistGroup,
     AccessPointWhitelistEntry,
 )
+
+from . import hashchain
 
 # try to use your helper if it exists
 try:
@@ -51,7 +52,7 @@ def _parse_iso_dt(s: Optional[str]) -> Optional[datetime]:
 
 def _match_whitelist(ssid: str, bssid: str, security: str, channel: int, oui: str):
     """
-    Precedence:
+    Whitelist precedence:
       1) exact BSSID in active group
       2) same SSID + security in that group (any BSSID)
       3) same SSID in non-strict group
@@ -65,7 +66,7 @@ def _match_whitelist(ssid: str, bssid: str, security: str, channel: int, oui: st
         return None, None, "UNREGISTERED_AP"
 
     for group in groups:
-        # exact BSSID
+        # 1) exact BSSID
         entry = group.entries.filter(bssid=bssid, is_active=True).first()
         if entry:
             if entry.channel and channel and int(entry.channel) != int(channel):
@@ -74,7 +75,7 @@ def _match_whitelist(ssid: str, bssid: str, security: str, channel: int, oui: st
                 return group, entry, "SECURITY_MISMATCH"
             return group, entry, "WHITELISTED_STRONG"
 
-        # any-BSSID but same security
+        # 2) any-BSSID but same security
         if security:
             entry = group.entries.filter(
                 bssid__isnull=True,
@@ -84,10 +85,11 @@ def _match_whitelist(ssid: str, bssid: str, security: str, channel: int, oui: st
             if entry:
                 return group, entry, "WHITELISTED_WEAK"
 
-        # non-strict group -> SSID ok, but we didn't list this AP
+        # 3) non-strict group -> SSID ok, but AP not explicitly listed
         if not group.strict:
             return group, None, "KNOWN_SSID_BUT_UNEXPECTED_AP"
 
+    # 4) we have groups but none matched cleanly
     return groups.first(), None, "KNOWN_SSID_REJECTED"
 
 
@@ -125,7 +127,7 @@ def _build_pem_from_xy(x_hex: str, y_hex: str) -> str:
     b64 = b64encode(der).decode("ascii")
     lines = ["-----BEGIN PUBLIC KEY-----"]
     for i in range(0, len(b64), 64):
-        lines.append(b64[i: i + 64])
+        lines.append(b64[i : i + 64])
     lines.append("-----END PUBLIC KEY-----")
     return "\n".join(lines)
 
@@ -139,14 +141,13 @@ def _verify_obs_signature(
     """
     Verify one observation.
 
-    ESP can send:
+    ESP sends:
       sig: {
         "alg": "ECDSA_P256_SHA256",
         "over": "SHA256(canonical)",
         "r": "...",
         "s": "..."
       }
-    so if "over" says SHA256(canonical), we verify the hash.
     """
     if not pem or not canonical or not sig_block:
         return False
@@ -160,7 +161,7 @@ def _verify_obs_signature(
 
     over = sig_block.get("over")
 
-    # 1) try user helper
+    # 1) try user helper if present
     if verify_ecdsa_p256_sha256 is not None:
         try:
             if over == "SHA256(canonical)":
@@ -173,8 +174,7 @@ def _verify_obs_signature(
                     r_hex=r_hex,
                     s_hex=s_hex,
                 )
-            else:
-                # legacy path
+            else:  # legacy path
                 return verify_ecdsa_p256_sha256(
                     pem_public_key=pem,
                     message=canonical.encode("utf-8"),
@@ -215,7 +215,7 @@ def _verify_obs_signature(
 
 
 # ---------------------------------------------------------------------
-# Ingest endpoint
+# Ingest endpoint (secure ESP32 -> Django)
 # ---------------------------------------------------------------------
 @csrf_exempt
 def ingest_observation(request):
@@ -320,7 +320,7 @@ def ingest_observation(request):
                 oui=oui,
             )
 
-                        # 🔐 HASH CHAIN PART
+            # 🔐 HASH CHAIN PART
             canonical_bytes = (canonical or "").encode("utf-8")
             payload_hash = hashchain.compute_payload_hash(canonical_bytes)
 
@@ -368,6 +368,7 @@ def ingest_observation(request):
                 matched_group=matched_group,
                 matched_entry=matched_entry,
                 match_status=status,
+                # 🚨 alert when not strongly/weakly whitelisted
                 is_flagged=status not in ("WHITELISTED_STRONG", "WHITELISTED_WEAK"),
                 prev_chain_hash=prev_chain_hash,
                 chain_hash=chain_hash,
@@ -391,10 +392,14 @@ def ingest_observation(request):
         }
     )
 
+
+# ---------------------------------------------------------------------
+# Hash chain analysis UI
+# ---------------------------------------------------------------------
 def hashchain_analysis(request):
     """
     UI page to view & verify the hash chain for ONE device (ESP32).
-    Supports extra filters (after chain build):
+    Supports filters:
       - ?ssid=Hospital
       - ?bssid=AA:BB:...
       - ?integrity=bad|ok|all
@@ -405,7 +410,7 @@ def hashchain_analysis(request):
     devices = Device.objects.filter(is_active=True).order_by("name")
     device_id = request.GET.get("device")
 
-    # just render empty page if no device chosen
+    # no device chosen -> empty page
     if not device_id:
         return render(
             request,
@@ -417,7 +422,6 @@ def hashchain_analysis(request):
                 "chart_timeline": "[]",
                 "chart_bssid": "[]",
                 "totals": {"total": 0, "ok": 0, "bad": 0},
-                # pass filters back so form can keep values
                 "filter_ssid": "",
                 "filter_bssid": "",
                 "filter_integrity": "all",
@@ -508,7 +512,7 @@ def hashchain_analysis(request):
     if f_limit:
         try:
             lim = int(f_limit)
-            filtered_rows = filtered_rows[:max(lim, 1)]
+            filtered_rows = filtered_rows[: max(lim, 1)]
         except ValueError:
             pass
 
@@ -524,11 +528,10 @@ def hashchain_analysis(request):
         if o.bssid:
             bssid_counts[o.bssid] = bssid_counts.get(o.bssid, 0) + 1
     top_bssid_items = sorted(bssid_counts.items(), key=lambda x: x[1], reverse=True)[:10]
-    chart_bssid = json.dumps([
-        {"bssid": b, "count": c} for (b, c) in top_bssid_items
-    ])
+    chart_bssid = json.dumps(
+        [{"bssid": b, "count": c} for (b, c) in top_bssid_items]
+    )
 
-    # totals: show both full and filtered? we can show filtered to match table
     totals = {
         "total": len(filtered_rows),
         "ok": sum(1 for r in filtered_rows if r["ok"]),
@@ -545,7 +548,6 @@ def hashchain_analysis(request):
             "chart_timeline": json.dumps(timeline_points),
             "chart_bssid": chart_bssid,
             "totals": totals,
-            # keep filters
             "filter_ssid": f_ssid,
             "filter_bssid": f_bssid,
             "filter_integrity": f_integrity,
@@ -555,6 +557,7 @@ def hashchain_analysis(request):
         },
     )
 
+
 def _build_chain_rows_from_queryset(obs_qs):
     """
     Helper to replay the chain over an ordered queryset of observations.
@@ -562,7 +565,7 @@ def _build_chain_rows_from_queryset(obs_qs):
     """
     rows = []
     timeline_points = []
-    expected_prev = b"\x00" * 32
+    expected_prev = b"\x00" * 32  # GENESIS seed
     total_ok = 0
     total_bad = 0
 
@@ -582,20 +585,24 @@ def _build_chain_rows_from_queryset(obs_qs):
 
         ok = (stored_prev == expected_prev) and (stored_chain == expected_chain)
 
-        rows.append({
-            "obs": obs,
-            "expected_prev": expected_prev.hex(),
-            "stored_prev": stored_prev.hex() if stored_prev else "",
-            "expected_chain": expected_chain.hex(),
-            "stored_chain": stored_chain.hex() if stored_chain else "",
-            "ok": ok,
-        })
+        rows.append(
+            {
+                "obs": obs,
+                "expected_prev": expected_prev.hex(),
+                "stored_prev": stored_prev.hex() if stored_prev else "",
+                "expected_chain": expected_chain.hex(),
+                "stored_chain": stored_chain.hex() if stored_chain else "",
+                "ok": ok,
+            }
+        )
 
-        timeline_points.append({
-            "ts": obs.server_ts.isoformat(),
-            "ok": ok,
-            "id": obs.id,
-        })
+        timeline_points.append(
+            {
+                "ts": obs.server_ts.isoformat(),
+                "ok": ok,
+                "id": obs.id,
+            }
+        )
 
         if ok:
             total_ok += 1
