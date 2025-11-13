@@ -1,15 +1,94 @@
 {% extends "base.html" %}
 {% block content %}
-<h2>Observation #{{ o.id }}</h2>
-<table>
-  <tr><th>Device</th><td>{{ o.device.name }}</td></tr>
-  <tr><th>SSID</th><td>{{ o.ssid }}</td></tr>
-  <tr><th>BSSID</th><td>{{ o.bssid }}</td></tr>
-  <tr><th>RSSI</th><td>{{ o.rssi|default:"" }}</td></tr>
-  <tr><th>Sensor TS</th><td>{{ o.sensor_ts }}</td></tr>
-  <tr><th>Server TS</th><td>{{ o.server_ts }}</td></tr>
-  <tr><th>Payload Hash</th><td><code>{{ payload_hex }}</code></td></tr>
-  <tr><th>Prev Chain Hash</th><td><code>{{ prev_hex|default:"—" }}</code></td></tr>
-  <tr><th>Chain Hash</th><td><code>{{ chain_hex }}</code></td></tr>
-</table>
+
+<main>
+  <h1 class="page-title">
+    Observation #{{ o.id }}
+    {% if o.is_flagged %}
+      <span class="badge badge-down">FLAGGED</span>
+    {% else %}
+      <span class="badge badge-up">OK</span>
+    {% endif %}
+  </h1>
+
+  <!-- =========================== -->
+  <!-- Radio / Identity -->
+  <!-- =========================== -->
+  <div class="obs-block">
+    <h2>Radio / Identity</h2>
+    <table>
+      <tr><th>Device</th><td>{{ o.device.name }}</td></tr>
+      <tr><th>SSID</th><td>{{ o.ssid }}</td></tr>
+      <tr><th>BSSID</th><td>{{ o.bssid }}</td></tr>
+      <tr><th>OUI</th><td>{{ o.oui }}</td></tr>
+      <tr><th>Channel</th><td>{{ o.channel }}</td></tr>
+      <tr><th>RSSI (best/current)</th><td>{{ o.rssi_best }} / {{ o.rssi_current }}</td></tr>
+      <tr><th>Beacons</th><td>{{ o.beacons }}</td></tr>
+      <tr><th>Sensor last seen (ms)</th><td>{{ o.sensor_last_seen_ms }}</td></tr>
+      <tr><th>Sensor timestamp</th><td>{{ o.sensor_ts }}</td></tr>
+      <tr><th>Server timestamp</th><td>{{ o.server_ts }}</td></tr>
+    </table>
+  </div>
+
+  <!-- =========================== -->
+  <!-- Security -->
+  <!-- =========================== -->
+  <div class="obs-block">
+    <h2>Security</h2>
+    <table>
+      <tr><th>Security mode</th><td>{{ o.security }}</td></tr>
+      <tr><th>RSN</th><td>{{ o.rsn_text }}</td></tr>
+      <tr><th>AKM</th><td>{{ o.akm_list }}</td></tr>
+      <tr><th>PMF capable</th><td>{{ o.pmf_capable|yesno:"Yes,No" }}</td></tr>
+      <tr><th>PMF required</th><td>{{ o.pmf_required|yesno:"Yes,No" }}</td></tr>
+    </table>
+  </div>
+
+  <!-- =========================== -->
+  <!-- Whitelist / Evil Twin -->
+  <!-- =========================== -->
+  <div class="obs-block">
+    <h2>Whitelist / Evil Twin Decision</h2>
+    <table>
+      <tr><th>Matched group</th>
+          <td>{% if o.matched_group %}{{ o.matched_group.name }} (SSID: {{ o.matched_group.ssid }}){% else %}—{% endif %}</td></tr>
+
+      <tr><th>Matched entry</th>
+          <td>{% if o.matched_entry %}{{ o.matched_entry.bssid }}{% if o.matched_entry.security %} ({{ o.matched_entry.security }}){% endif %}{% else %}—{% endif %}</td></tr>
+
+      <tr><th>Match status</th><td>{{ o.match_status|default:"(none)" }}</td></tr>
+      <tr><th>Flagged</th><td>{{ o.is_flagged|yesno:"Yes,No" }}</td></tr>
+    </table>
+  </div>
+
+  <!-- =========================== -->
+  <!-- Signature & Canonical -->
+  <!-- =========================== -->
+  <div class="obs-block">
+    <h2>Integrity & Signature</h2>
+    <table>
+      <tr><th>SHA-256(canonical)</th><td class="mono">{{ hash_sha256 }}</td></tr>
+      <tr><th>Signature algorithm</th><td>{{ sig_alg }}</td></tr>
+      <tr><th>Signature r</th><td class="mono">{{ sig_r }}</td></tr>
+      <tr><th>Signature s</th><td class="mono">{{ sig_s }}</td></tr>
+    </table>
+
+    <h3>Canonical string</h3>
+    <pre class="mono">{{ canonical }}</pre>
+  </div>
+
+  <!-- =========================== -->
+  <!-- Hash Chain -->
+  <!-- =========================== -->
+  <div class="obs-block">
+    <h2>Hash Chain</h2>
+    <table>
+      <tr><th>Integrity OK</th><td>{{ o.integrity_ok|yesno:"Yes,No" }}</td></tr>
+      <tr><th>Previous chain hash</th><td class="mono">{% if o.prev_chain_hash %}{{ o.prev_chain_hash }}{% else %}—{% endif %}</td></tr>
+      <tr><th>Chain hash</th><td class="mono">{% if o.chain_hash %}{{ o.chain_hash }}{% else %}—{% endif %}</td></tr>
+    </table>
+  </div>
+
+</main>
+
 {% endblock %}

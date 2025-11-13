@@ -21,8 +21,12 @@
               <th>SSID</th>
               <th>BSSID</th>
               <th>Ch</th>
+              <th>RSSI (best/cur)</th>
               <th>Security</th>
-              <th>RSSI</th>
+              <th>RSN</th>
+              <th>AKM</th>
+              <th>PMF</th>
+              <th>Status</th>
               <th></th>
             </tr>
           </thead>
@@ -35,12 +39,33 @@
                 <td>{{ obs.ssid|default:"&lt;hidden&gt;"|safe }}</td>
                 <td>{{ obs.bssid }}</td>
                 <td>{{ obs.channel|default:"?" }}</td>
+                <td>
+                  {% if obs.rssi_best or obs.rssi_current %}
+                    {{ obs.rssi_best|default:"—" }}/{{ obs.rssi_current|default:"—" }}
+                  {% else %}
+                    —
+                  {% endif %}
+                </td>
                 <td>{{ obs.security|default:"—" }}</td>
-                <td>{{ obs.rssi_current|default:"—" }}</td>
-                <td><a href="{% url 'observation_detail' obs.id %}" class="btn btn-sm btn-outline-light">Details</a></td>
+                <td>{{ obs.rsn_text|default:"—" }}</td>
+                <td>{{ obs.akm_list|default:"—" }}</td>
+                <td>
+                  cap={{ obs.pmf_capable|yesno:"Y,N" }},
+                  req={{ obs.pmf_required|yesno:"Y,N" }}
+                </td>
+                <td>{{ obs.match_status|default:"(none)" }}</td>
+                <td>
+                  <a href="{% url 'observation_detail' obs.id %}" class="btn btn-sm btn-outline-light">
+                    Details
+                  </a>
+                </td>
               </tr>
             {% empty %}
-              <tr><td colspan="9" class="text-center text-muted p-4">No unwhitelisted observations.</td></tr>
+              <tr>
+                <td colspan="13" class="text-center text-muted p-4">
+                  No unwhitelisted observations.
+                </td>
+              </tr>
             {% endfor %}
           </tbody>
         </table>

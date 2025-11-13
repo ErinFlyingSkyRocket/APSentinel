@@ -265,9 +265,10 @@ def ingest_observation(request):
     device.save()
 
     # 4) observations list
-    obs_list = data.get("observations") or []
+    #    New firmware may send under "aps"; keep old "observations" for compatibility.
+    obs_list = data.get("observations") or data.get("aps") or []
     if not isinstance(obs_list, list):
-        return HttpResponseBadRequest("'observations' must be a list")
+        return HttpResponseBadRequest("'observations' or 'aps' must be a list")
 
     now = dj_timezone.now()
     stored_ids = []
@@ -319,7 +320,7 @@ def ingest_observation(request):
                 oui=oui,
             )
 
-            # 🔐 HASH CHAIN PART
+                        # 🔐 HASH CHAIN PART
             canonical_bytes = (canonical or "").encode("utf-8")
             payload_hash = hashchain.compute_payload_hash(canonical_bytes)
 
@@ -327,10 +328,13 @@ def ingest_observation(request):
             last_obs = (
                 AccessPointObservation.objects
                 .filter(device=device)
-                .order_by("-server_ts", "-id")  # 👈 add -id
+                .order_by("-server_ts", "-id")
                 .first()
             )
-            prev_chain_hash = last_obs.chain_hash if last_obs else None
+
+            # GENESIS: first record for this device uses 32x00 as prev hash
+            genesis = b"\x00" * 32
+            prev_chain_hash = last_obs.chain_hash if last_obs else genesis
 
             server_ts_iso = now.isoformat()
             chain_hash = hashchain.compute_chain_hash(

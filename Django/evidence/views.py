@@ -157,22 +157,30 @@ def esp32_ingest(request):
         print("headers:", dict(request.headers))
         print("=== END CALL HEADER DUMP ===")
     else:
-        return JsonResponse({"status": "alive", "detail": "send POST JSON here"}, status=200)
+        return JsonResponse(
+            {"status": "alive", "detail": "send POST JSON here"},
+            status=200,
+        )
 
-    # POST only
+    # POST only (defensive)
     if request.method != "POST":
         return JsonResponse({"error": "POST only"}, status=405)
 
-    # parse JSON
+    # ------------------------------------------------------------------
+    # Parse JSON
+    # ------------------------------------------------------------------
     try:
         payload = json.loads(request.body.decode("utf-8"))
     except Exception as e:
         return JsonResponse({"error": "invalid json", "detail": str(e)}, status=400)
 
-    # extract device identifiers
+    # ------------------------------------------------------------------
+    # Device identification
+    # ------------------------------------------------------------------
     device_block = payload.get("device") or {}
     device_mac_raw = device_block.get("mac") or ""
     device_name_raw = device_block.get("name") or ""
+
     # ESP sends colon MAC, user might have saved colon-less
     def norm(s: str) -> str:
         return (s or "").replace(":", "").replace("-", "").strip().upper()
@@ -190,12 +198,15 @@ def esp32_ingest(request):
     # build simple index {normalized_name: id}
     indexed = {}
     for d in active_devices:
-      indexed[norm(d["name"])] = d["id"]
+        indexed[norm(d["name"])] = d["id"]
 
-    print("[ingest] active devices in DB:", [
-        {"id": d["id"], "name": d["name"], "name_norm": norm(d["name"])}
-        for d in active_devices
-    ])
+    print(
+        "[ingest] active devices in DB:",
+        [
+            {"id": d["id"], "name": d["name"], "name_norm": norm(d["name"])}
+            for d in active_devices
+        ],
+    )
 
     device = None
     for cid in candidate_ids:
@@ -220,9 +231,18 @@ def esp32_ingest(request):
     device.last_seen = timezone.now()
     device.save(update_fields=["last_seen"])
 
-    # observations array (ESP32 format)
-    records = payload.get("observations") or []
+    # ------------------------------------------------------------------
+    # Observations from ESP32
+    #   New firmware uses "aps"; keep backward-compat with "observations".
+    # ------------------------------------------------------------------
+    records = payload.get("observations") or payload.get("aps") or []
+    print(f"[ingest] received {len(records)} AP records")
+
     created = 0
+    now = timezone.now()
+
+    # pre-compute model field names so we can safely add optional integrity fields
+    field_names = {f.name for f in AccessPointObservation._meta.get_fields()}
 
     for rec in records:
         bssid = rec.get("bssid")
@@ -260,8 +280,12 @@ def esp32_ingest(request):
             continue
 
         pmf_obj = rec.get("pmf") or {}
+        sig_obj = rec.get("sig") or {}
 
-        AccessPointObservation.objects.create(
+        # ------------------------------------------------------------------
+        # Build observation kwargs mapping ESP32 fields -> model fields
+        # ------------------------------------------------------------------
+        obs_kwargs = dict(
             device=device,
             ssid=ssid,
             bssid=bssid,
@@ -277,11 +301,27 @@ def esp32_ingest(request):
             akm_list=rec.get("akm") or rec.get("akm_list"),
             pmf_capable=pmf_obj.get("cap", False) or rec.get("pmf_capable", False),
             pmf_required=pmf_obj.get("req", False) or rec.get("pmf_required", False),
-            sensor_ts=timezone.now(),
-            server_ts=timezone.now(),
+            sensor_ts=now,
+            server_ts=now,
             matched_group=matched_group,
             matched_entry=matched_entry,
         )
+
+        # Optional integrity fields – only set if your model has these columns
+        if "canonical" in field_names:
+            obs_kwargs["canonical"] = rec.get("canonical") or ""
+        if "hash_sha256" in field_names:
+            obs_kwargs["hash_sha256"] = rec.get("hash_sha256") or ""
+        if "sig_alg" in field_names:
+            obs_kwargs["sig_alg"] = sig_obj.get("alg") or ""
+        if "sig_over" in field_names:
+            obs_kwargs["sig_over"] = sig_obj.get("over") or ""
+        if "sig_r" in field_names:
+            obs_kwargs["sig_r"] = sig_obj.get("r") or ""
+        if "sig_s" in field_names:
+            obs_kwargs["sig_s"] = sig_obj.get("s") or ""
+
+        AccessPointObservation.objects.create(**obs_kwargs)
         created += 1
 
     return JsonResponse({"status": "ok", "created": created}, status=201)

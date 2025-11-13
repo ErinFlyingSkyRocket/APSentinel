@@ -153,10 +153,13 @@
             <th>SSID</th>
             <th>BSSID</th>
             <th>Ch</th>
+            <th>RSSI (best/cur)</th>
             <th>Security</th>
-            <th>RSSI</th>
+            <th>RSN</th>
+            <th>AKM</th>
+            <th>PMF</th>
+            <th>Status</th>
             <th>Flagged</th>
-            <!-- new -->
             <th>Chain</th>
             <th>Integrity</th>
             <th></th>
@@ -178,10 +181,22 @@
               <td>{{ o.ssid|default:"—" }}</td>
               <td class="mono">{{ o.bssid }}</td>
               <td>{{ o.channel }}</td>
-              <td>{{ o.security }}</td>
-              <td>{{ o.rssi_current }}</td>
+              <td>
+                {% if o.rssi_best or o.rssi_current %}
+                  {{ o.rssi_best|default:"—" }}/{{ o.rssi_current|default:"—" }}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td>{{ o.security|default:"—" }}</td>
+              <td>{{ o.rsn_text|default:"—" }}</td>
+              <td>{{ o.akm_list|default:"—" }}</td>
+              <td>
+                cap={{ o.pmf_capable|yesno:"Y,N" }},
+                req={{ o.pmf_required|yesno:"Y,N" }}
+              </td>
+              <td>{{ o.match_status|default:"(none)" }}</td>
               <td>{% if o.is_flagged %}⚠️{% else %}ok{% endif %}</td>
-              <!-- new: show start of chain -->
               <td>
                 {% if o.chain_hex %}
                   {{ o.chain_hex|slice:":16" }}…
@@ -201,7 +216,7 @@
             {% endfor %}
           {% else %}
             <tr>
-              <td colspan="12" class="empty">No logs available.</td>
+              <td colspan="16" class="empty">No logs available.</td>
             </tr>
           {% endif %}
         </tbody>
