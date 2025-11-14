@@ -75,22 +75,12 @@ def _match_whitelist(
       3) same SSID in non-strict group
       4) else -> unregistered / rejected
 
-    Returns: (matched_group or None, matched_entry or None, status_str)
-
-    status_str possible values:
-      - WHITELISTED_STRONG
-      - WHITELISTED_WEAK
-      - CHANNEL_MISMATCH
-      - SECURITY_MISMATCH
-      - VENDOR_MISMATCH
-      - BAND_MISMATCH
-      - RSN_MISMATCH
-      - AKM_MISMATCH
-      - PMF_MISMATCH
-      - KNOWN_SSID_BUT_UNEXPECTED_AP
-      - KNOWN_SSID_REJECTED
-      - UNREGISTERED_AP
+    NOTE:
+      - Channel and band are treated as *informational only* to avoid false
+        positives when APs auto-change channel or move between bands.
+      - We still enforce security / OUI / RSN / AKM / PMF if explicitly set.
     """
+
     if not ssid:
         return None, None, "UNREGISTERED_AP"
 
@@ -98,61 +88,67 @@ def _match_whitelist(
     if not groups.exists():
         return None, None, "UNREGISTERED_AP"
 
-    # normalise
-    bssid_norm = (bssid or "").upper()
-    oui_norm = (oui or "").upper()
-    band_norm = (band or "").strip() or None
-    rsn_norm = (rsn_text or "").strip() or None
+    # normalise helpers
+    def norm(s: Optional[str]) -> str:
+        return (s or "").strip()
 
-    # normalise AKM as a set of tokens so order doesn't matter
-    def _akm_set(val: Optional[str]):
+    def norm_upper(s: Optional[str]) -> str:
+        return (s or "").strip().upper()
+
+    def akm_set(val: Optional[str]) -> set[str]:
         if not val:
             return set()
         return {t.strip().upper() for t in val.split(",") if t.strip()}
 
-    akm_obs = _akm_set(akm_list)
+    bssid_raw = bssid or ""
+    oui_norm = norm_upper(oui)
+    band_norm = norm(band) or None
+    rsn_norm = norm(rsn_text) or None
+
+    sec_obs = norm(security)
+    akm_obs = akm_set(akm_list)
 
     for group in groups:
-        # --------------------------------------------------------------
+        # ------------------------------------------------------------------
         # 1) exact BSSID entry (strongest match)
-        # --------------------------------------------------------------
-        entry = group.entries.filter(bssid=bssid_norm, is_active=True).first()
+        # ------------------------------------------------------------------
+        entry = group.entries.filter(bssid__iexact=bssid_raw, is_active=True).first()
         if entry:
-            # channel mismatch
-            if entry.channel is not None and channel and int(entry.channel) != int(channel):
-                return group, entry, "CHANNEL_MISMATCH"
+            # NOTE: channel is NOT enforced anymore (APs may auto-change channel)
+            # if entry.channel is not None and channel and int(entry.channel) != int(channel):
+            #     return group, entry, "CHANNEL_MISMATCH"
 
-            # security mismatch
-            if entry.security and security and entry.security != security:
+            # security mismatch (entry.security overrides group.default_security)
+            expected_sec = norm(entry.security or group.default_security)
+            if expected_sec and sec_obs and expected_sec != sec_obs:
                 return group, entry, "SECURITY_MISMATCH"
 
             # vendor (OUI) mismatch
             if entry.vendor_oui:
-                entry_oui = entry.vendor_oui.strip().upper()
+                entry_oui = norm_upper(entry.vendor_oui)
                 if oui_norm and entry_oui and oui_norm != entry_oui:
                     return group, entry, "VENDOR_MISMATCH"
 
-            # band mismatch
-            if entry.band:
-                entry_band = entry.band.strip()
-                if band_norm and entry_band and band_norm != entry_band:
-                    return group, entry, "BAND_MISMATCH"
+            # NOTE: band is NOT enforced anymore
+            # if entry.band:
+            #     entry_band = norm(entry.band)
+            #     if band_norm and entry_band and band_norm != entry_band:
+            #         return group, entry, "BAND_MISMATCH"
 
             # RSN mismatch
             if entry.rsn_text:
-                entry_rsn = entry.rsn_text.strip()
+                entry_rsn = norm(entry.rsn_text)
                 if rsn_norm and entry_rsn and rsn_norm != entry_rsn:
                     return group, entry, "RSN_MISMATCH"
 
             # AKM mismatch
             if entry.akm_list:
-                akm_entry = _akm_set(entry.akm_list)
+                akm_entry = akm_set(entry.akm_list)
                 if akm_entry and akm_obs and akm_entry != akm_obs:
                     return group, entry, "AKM_MISMATCH"
 
             # PMF mismatch (only if entry explicitly expects something)
             if entry.pmf_capable or entry.pmf_required:
-                # Treat missing obs value as False
                 obs_cap = bool(pmf_capable)
                 obs_req = bool(pmf_required)
 
@@ -164,22 +160,22 @@ def _match_whitelist(
             # everything that is constrained matches -> strong whitelist
             return group, entry, "WHITELISTED_STRONG"
 
-        # --------------------------------------------------------------
+        # ------------------------------------------------------------------
         # 2) any-BSSID but same security (weak whitelist rule)
-        #    We don't check all the extra fields here to keep it "weak".
-        # --------------------------------------------------------------
-        if security:
+        #    You explicitly want this to stay *weak*.
+        # ------------------------------------------------------------------
+        if sec_obs:
             entry = group.entries.filter(
                 bssid__isnull=True,
                 is_active=True,
-                security=security,
+                security__iexact=sec_obs,
             ).first()
             if entry:
                 return group, entry, "WHITELISTED_WEAK"
 
-        # --------------------------------------------------------------
+        # ------------------------------------------------------------------
         # 3) non-strict group → SSID ok, AP not explicitly listed
-        # --------------------------------------------------------------
+        # ------------------------------------------------------------------
         if not group.strict:
             return group, None, "KNOWN_SSID_BUT_UNEXPECTED_AP"
 

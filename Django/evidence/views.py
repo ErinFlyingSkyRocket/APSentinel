@@ -92,26 +92,39 @@ def whitelist_edit(request, pk):
     group = get_object_or_404(AccessPointWhitelistGroup, pk=pk)
 
     if request.method == "POST":
+        # --- update group fields ---
         group.name = request.POST.get("name", group.name)
         group.ssid = request.POST.get("ssid", group.ssid)
         group.location = request.POST.get("location", group.location)
-        group.default_security = request.POST.get("default_security", group.default_security)
-        # keep strict
+        group.default_security = request.POST.get(
+            "default_security", group.default_security
+        )
         group.strict = request.POST.get("strict") == "on"
-        # toggle active from checkbox
         group.is_active = "is_active" in request.POST
         group.updated_at = timezone.now()
         group.save()
 
-        # handle adding new entry under this group
+        # --- handle adding new entry under this group (optional) ---
         new_bssid = request.POST.get("new_bssid", "").strip()
+
         if new_bssid:
+            new_security = request.POST.get("new_security", "").strip()
+            new_channel = request.POST.get("new_channel") or None
+            new_band = request.POST.get("new_band", "").strip() or None
+            new_vendor_oui = request.POST.get("new_vendor_oui", "").strip() or None
+            new_rsn_text = request.POST.get("new_rsn_text", "").strip() or None
+            new_akm_list = request.POST.get("new_akm_list", "").strip() or None
+
             AccessPointWhitelistEntry.objects.create(
                 group=group,
                 bssid=new_bssid,
-                security=request.POST.get("new_security", "").strip() or group.default_security,
-                channel=request.POST.get("new_channel") or None,
-                # entry active by default
+                security=new_security or group.default_security or None,
+                channel=new_channel,
+                band=new_band,
+                vendor_oui=new_vendor_oui,
+                rsn_text=new_rsn_text,
+                akm_list=new_akm_list,
+                # pmf_capable / pmf_required / is_active use model defaults
             )
 
         return redirect("whitelist_edit", pk=group.pk)

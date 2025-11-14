@@ -38,10 +38,10 @@
       </div>
       <div>
         <label style="display:flex; align-items:center; gap:6px;">
-            <input type="checkbox" name="is_active" {% if group.is_active %}checked{% endif %}>
-            Active (this whitelist group is currently {% if group.is_active %}enabled{% else %}disabled{% endif %})
+          <input type="checkbox" name="is_active" {% if group.is_active %}checked{% endif %}>
+          Active (this whitelist group is currently {% if group.is_active %}enabled{% else %}disabled{% endif %})
         </label>
-        </div>
+      </div>
       <div>
         <button type="submit">Save Group</button>
         <a href="{% url 'whitelist_list' %}">Back</a>
@@ -58,7 +58,9 @@
         <tr>
           <th>BSSID</th>
           <th>Security</th>
-          <th>Channel</th>
+          <th>Vendor&nbsp;OUI</th>
+          <th>RSN / AKM</th>
+          <th>Status</th>
           <th></th>
         </tr>
       </thead>
@@ -67,7 +69,25 @@
           <tr>
             <td class="mono">{{ e.bssid|default:"ANY" }}</td>
             <td>{{ e.security|default:"—" }}</td>
-            <td>{{ e.channel|default:"—" }}</td>
+            <td class="mono">{{ e.vendor_oui|default:"—" }}</td>
+            <td>
+              {% if e.rsn_text %}
+                <div class="mono">RSN: {{ e.rsn_text }}</div>
+              {% endif %}
+              {% if e.akm_list %}
+                <div class="mono">AKM: {{ e.akm_list }}</div>
+              {% endif %}
+              {% if not e.rsn_text and not e.akm_list %}
+                —
+              {% endif %}
+            </td>
+            <td>
+              {% if e.is_active %}
+                <span class="badge badge-ok">Active</span>
+              {% else %}
+                <span class="badge badge-muted">Disabled</span>
+              {% endif %}
+            </td>
             <td>
               <form method="post" action="{% url 'whitelist_entry_delete' e.id %}">
                 {% csrf_token %}
@@ -85,20 +105,41 @@
   <h4 style="margin-top:1.5rem;">Add BSSID to this group</h4>
   <form method="post" action="">
     {% csrf_token %}
-    <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
+    <div style="display:flex; gap:0.75rem; flex-wrap:wrap; margin-bottom:0.75rem;">
       <div>
         <label>BSSID</label>
         <input type="text" name="new_bssid" placeholder="AA:BB:CC:DD:EE:FF">
       </div>
       <div>
         <label>Security</label>
-        <input type="text" name="new_security" placeholder="Leave blank to use group default">
+        <select name="new_security">
+          <option value="">Use group default</option>
+          <option value="OPEN">OPEN</option>
+          <option value="WEP">WEP</option>
+          <option value="WPA-PSK">WPA-PSK</option>
+          <option value="WPA2-PSK">WPA2-PSK</option>
+          <option value="WPA2-EAP">WPA2-EAP</option>
+          <option value="WPA3-SAE">WPA3-SAE</option>
+          <option value="WPA3-EAP">WPA3-EAP</option>
+        </select>
       </div>
       <div>
-        <label>Channel</label>
-        <input type="number" name="new_channel" min="1" max="196">
+        <label>Vendor OUI</label>
+        <input type="text" name="new_vendor_oui" placeholder="e.g. F09FC2">
       </div>
     </div>
+
+    <div style="display:flex; gap:0.75rem; flex-wrap:wrap; margin-bottom:0.75rem;">
+      <div style="min-width:260px;">
+        <label>RSN text</label>
+        <input type="text" name="new_rsn_text" placeholder="e.g. CCMP/CCMP">
+      </div>
+      <div style="min-width:260px;">
+        <label>AKM list</label>
+        <input type="text" name="new_akm_list" placeholder="e.g. PSK,SAE">
+      </div>
+    </div>
+
     <div style="margin-top:1rem;">
       <button type="submit">Add entry</button>
     </div>
