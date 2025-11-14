@@ -41,11 +41,25 @@
     </div>
   </form>
 
-  <!-- Top two cards -->
+  <!-- Top row: unwhitelisted + recent alerts -->
   <div class="obs-top-grid" style="display:flex; gap:1rem; align-items:flex-start; margin-bottom:1rem; flex-wrap:wrap;">
     <!-- Current unwhitelisted (last 10 min) -->
     <div class="obs-block" style="flex:1 1 320px;">
-      <h3 style="font-size:0.9rem; margin-bottom:0.5rem;">Current detected unwhitelisted (last 10 min)</h3>
+      <h3 style="font-size:0.9rem; margin-bottom:0.25rem;">Current detected unwhitelisted (last 10 min)</h3>
+
+      <!-- mini search for this table -->
+      <form method="get" style="margin-bottom:0.4rem; font-size:0.75rem; display:flex; gap:0.3rem; align-items:center;">
+        <input type="text" name="flag_q" placeholder="Search SSID/BSSID…" value="{{ flag_q }}" style="max-width:170px;">
+        <!-- preserve main filters + other table searches -->
+        <input type="hidden" name="q" value="{{ q }}">
+        <input type="hidden" name="device" value="{{ selected_device }}">
+        <input type="hidden" name="since" value="{{ since }}">
+        <input type="hidden" name="until" value="{{ until }}">
+        <input type="hidden" name="alert_q" value="{{ alert_q }}">
+        <input type="hidden" name="anomaly_q" value="{{ anomaly_q }}">
+        <button type="submit" class="btn" style="padding:2px 8px;">Search</button>
+      </form>
+
       <div class="table-wrap" style="overflow-x:auto;">
         <table class="table-tight">
           <thead>
@@ -93,7 +107,20 @@
 
     <!-- Recent alerts / observations -->
     <div class="obs-block" style="flex:1 1 320px;">
-      <h3 style="font-size:0.9rem; margin-bottom:0.5rem;">Recent alerts / observations</h3>
+      <h3 style="font-size:0.9rem; margin-bottom:0.25rem;">Recent alerts / observations</h3>
+
+      <!-- mini search for this table -->
+      <form method="get" style="margin-bottom:0.4rem; font-size:0.75rem; display:flex; gap:0.3rem; align-items:center;">
+        <input type="text" name="alert_q" placeholder="Search SSID/BSSID…" value="{{ alert_q }}" style="max-width:170px;">
+        <input type="hidden" name="q" value="{{ q }}">
+        <input type="hidden" name="device" value="{{ selected_device }}">
+        <input type="hidden" name="since" value="{{ since }}">
+        <input type="hidden" name="until" value="{{ until }}">
+        <input type="hidden" name="flag_q" value="{{ flag_q }}">
+        <input type="hidden" name="anomaly_q" value="{{ anomaly_q }}">
+        <button type="submit" class="btn" style="padding:2px 8px;">Search</button>
+      </form>
+
       <div class="table-wrap" style="overflow-x:auto;">
         <table class="table-tight">
           <thead>
@@ -138,6 +165,69 @@
     </div>
   </div>
 
+  <!-- Big whitelist anomalies / possible evil twins table -->
+  <div class="obs-block" style="margin-bottom:1rem;">
+    <h3 style="font-size:0.9rem;">Whitelist anomalies / possible evil twins (last 60 min)</h3>
+    <p style="margin:0 0 8px; color:var(--muted); font-size:0.75rem;">
+      Known SSIDs where something changed (channel, security, or unexpected BSSID). These are high-priority to investigate.
+    </p>
+
+    <!-- mini search for anomalies table -->
+    <form method="get" style="margin-bottom:0.4rem; font-size:0.75rem; display:flex; gap:0.3rem; align-items:center;">
+      <input type="text" name="anomaly_q" placeholder="Search SSID/BSSID…" value="{{ anomaly_q }}" style="max-width:200px;">
+      <input type="hidden" name="q" value="{{ q }}">
+      <input type="hidden" name="device" value="{{ selected_device }}">
+      <input type="hidden" name="since" value="{{ since }}">
+      <input type="hidden" name="until" value="{{ until }}">
+      <input type="hidden" name="flag_q" value="{{ flag_q }}">
+      <input type="hidden" name="alert_q" value="{{ alert_q }}">
+      <button type="submit" class="btn" style="padding:2px 8px;">Search</button>
+    </form>
+
+    <div class="table-wrap" style="overflow-x:auto;">
+      <table class="table-tight">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>SSID</th>
+            <th>BSSID</th>
+            <th>Device</th>
+            <th>Ch</th>
+            <th>Security</th>
+            <th>RSN</th>
+            <th>AKM</th>
+            <th>PMF</th>
+            <th>Dynamic status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if anomaly_rows %}
+            {% for o in anomaly_rows %}
+              <tr>
+                <td>{{ o.server_ts|date:"M j, Y, g:i a" }}</td>
+                <td>{{ o.ssid|default:"—" }}</td>
+                <td class="mono">{{ o.bssid }}</td>
+                <td>{{ o.device.name }}</td>
+                <td>{{ o.channel }}</td>
+                <td>{{ o.security|default:"—" }}</td>
+                <td>{{ o.rsn_text|default:"—" }}</td>
+                <td>{{ o.akm_list|default:"—" }}</td>
+                <td>cap={{ o.pmf_capable|yesno:"Y,N" }}, req={{ o.pmf_required|yesno:"Y,N" }}</td>
+                <td>{{ o.dynamic_status|default:o.match_status|default:"(none)" }}</td>
+                <td><a href="{% url 'observation_detail' o.id %}" class="btn-link">Details</a></td>
+              </tr>
+            {% endfor %}
+          {% else %}
+            <tr>
+              <td colspan="11" class="empty">No whitelist anomalies detected in the last 60 minutes.</td>
+            </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- All detected APs -->
   <div class="obs-block" style="margin-top:16px;">
     <h3 style="font-size:0.9rem;">All detected APs
@@ -158,8 +248,8 @@
             <th>RSN</th>
             <th>AKM</th>
             <th>PMF</th>
-            <th>Status</th>
-            <th>Flagged</th>
+            <th>Status (dynamic)</th>
+            <th>Flag / Anomaly</th>
             <th>Chain</th>
             <th>Integrity</th>
             <th></th>
@@ -195,8 +285,18 @@
                 cap={{ o.pmf_capable|yesno:"Y,N" }},
                 req={{ o.pmf_required|yesno:"Y,N" }}
               </td>
-              <td>{{ o.match_status|default:"(none)" }}</td>
-              <td>{% if o.is_flagged %}⚠️{% else %}ok{% endif %}</td>
+              <td>
+                {{ o.dynamic_status|default:o.match_status|default:"(none)" }}
+              </td>
+              <td>
+                {% if o.dynamic_anomaly %}
+                  🔥
+                {% elif o.dynamic_flagged %}
+                  ⚠️
+                {% else %}
+                  ok
+                {% endif %}
+              </td>
               <td>
                 {% if o.chain_hex %}
                   {{ o.chain_hex|slice:":16" }}…

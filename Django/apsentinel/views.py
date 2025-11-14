@@ -15,7 +15,7 @@ from devices.models import Device
 from evidence.models import (
     AccessPointObservation,
     AccessPointWhitelistGroup,
-    AccessPointWhitelistEntry,
+    UnregisteredAP,   # registry of unique unwhitelisted APs
 )
 
 from . import hashchain
@@ -37,6 +37,11 @@ def health(request):
 # Helpers
 # ---------------------------------------------------------------------
 def _parse_iso_dt(s: Optional[str]) -> Optional[datetime]:
+    """
+    Parse an ISO8601 datetime string (optionally ending with 'Z') into
+    an aware UTC datetime. Currently not used in this module but kept
+    for potential future filters / APIs.
+    """
     if not s:
         return None
     try:
@@ -50,13 +55,41 @@ def _parse_iso_dt(s: Optional[str]) -> Optional[datetime]:
         return None
 
 
-def _match_whitelist(ssid: str, bssid: str, security: str, channel: int, oui: str):
+def _match_whitelist(
+    ssid: str,
+    bssid: str,
+    security: Optional[str],
+    channel: int,
+    oui: str,
+    band: Optional[str] = None,
+    rsn_text: Optional[str] = None,
+    akm_list: Optional[str] = None,
+    pmf_capable: Optional[bool] = None,
+    pmf_required: Optional[bool] = None,
+):
     """
-    Whitelist precedence:
+    Whitelist precedence (used at ingest time AND by UI for dynamic alerts):
+
       1) exact BSSID in active group
       2) same SSID + security in that group (any BSSID)
       3) same SSID in non-strict group
       4) else -> unregistered / rejected
+
+    Returns: (matched_group or None, matched_entry or None, status_str)
+
+    status_str possible values:
+      - WHITELISTED_STRONG
+      - WHITELISTED_WEAK
+      - CHANNEL_MISMATCH
+      - SECURITY_MISMATCH
+      - VENDOR_MISMATCH
+      - BAND_MISMATCH
+      - RSN_MISMATCH
+      - AKM_MISMATCH
+      - PMF_MISMATCH
+      - KNOWN_SSID_BUT_UNEXPECTED_AP
+      - KNOWN_SSID_REJECTED
+      - UNREGISTERED_AP
     """
     if not ssid:
         return None, None, "UNREGISTERED_AP"
@@ -65,17 +98,76 @@ def _match_whitelist(ssid: str, bssid: str, security: str, channel: int, oui: st
     if not groups.exists():
         return None, None, "UNREGISTERED_AP"
 
+    # normalise
+    bssid_norm = (bssid or "").upper()
+    oui_norm = (oui or "").upper()
+    band_norm = (band or "").strip() or None
+    rsn_norm = (rsn_text or "").strip() or None
+
+    # normalise AKM as a set of tokens so order doesn't matter
+    def _akm_set(val: Optional[str]):
+        if not val:
+            return set()
+        return {t.strip().upper() for t in val.split(",") if t.strip()}
+
+    akm_obs = _akm_set(akm_list)
+
     for group in groups:
-        # 1) exact BSSID
-        entry = group.entries.filter(bssid=bssid, is_active=True).first()
+        # --------------------------------------------------------------
+        # 1) exact BSSID entry (strongest match)
+        # --------------------------------------------------------------
+        entry = group.entries.filter(bssid=bssid_norm, is_active=True).first()
         if entry:
-            if entry.channel and channel and int(entry.channel) != int(channel):
+            # channel mismatch
+            if entry.channel is not None and channel and int(entry.channel) != int(channel):
                 return group, entry, "CHANNEL_MISMATCH"
+
+            # security mismatch
             if entry.security and security and entry.security != security:
                 return group, entry, "SECURITY_MISMATCH"
+
+            # vendor (OUI) mismatch
+            if entry.vendor_oui:
+                entry_oui = entry.vendor_oui.strip().upper()
+                if oui_norm and entry_oui and oui_norm != entry_oui:
+                    return group, entry, "VENDOR_MISMATCH"
+
+            # band mismatch
+            if entry.band:
+                entry_band = entry.band.strip()
+                if band_norm and entry_band and band_norm != entry_band:
+                    return group, entry, "BAND_MISMATCH"
+
+            # RSN mismatch
+            if entry.rsn_text:
+                entry_rsn = entry.rsn_text.strip()
+                if rsn_norm and entry_rsn and rsn_norm != entry_rsn:
+                    return group, entry, "RSN_MISMATCH"
+
+            # AKM mismatch
+            if entry.akm_list:
+                akm_entry = _akm_set(entry.akm_list)
+                if akm_entry and akm_obs and akm_entry != akm_obs:
+                    return group, entry, "AKM_MISMATCH"
+
+            # PMF mismatch (only if entry explicitly expects something)
+            if entry.pmf_capable or entry.pmf_required:
+                # Treat missing obs value as False
+                obs_cap = bool(pmf_capable)
+                obs_req = bool(pmf_required)
+
+                if entry.pmf_required and not obs_req:
+                    return group, entry, "PMF_MISMATCH"
+                if entry.pmf_capable and not obs_cap:
+                    return group, entry, "PMF_MISMATCH"
+
+            # everything that is constrained matches -> strong whitelist
             return group, entry, "WHITELISTED_STRONG"
 
-        # 2) any-BSSID but same security
+        # --------------------------------------------------------------
+        # 2) any-BSSID but same security (weak whitelist rule)
+        #    We don't check all the extra fields here to keep it "weak".
+        # --------------------------------------------------------------
         if security:
             entry = group.entries.filter(
                 bssid__isnull=True,
@@ -85,7 +177,9 @@ def _match_whitelist(ssid: str, bssid: str, security: str, channel: int, oui: st
             if entry:
                 return group, entry, "WHITELISTED_WEAK"
 
-        # 3) non-strict group -> SSID ok, but AP not explicitly listed
+        # --------------------------------------------------------------
+        # 3) non-strict group → SSID ok, AP not explicitly listed
+        # --------------------------------------------------------------
         if not group.strict:
             return group, None, "KNOWN_SSID_BUT_UNEXPECTED_AP"
 
@@ -127,7 +221,7 @@ def _build_pem_from_xy(x_hex: str, y_hex: str) -> str:
     b64 = b64encode(der).decode("ascii")
     lines = ["-----BEGIN PUBLIC KEY-----"]
     for i in range(0, len(b64), 64):
-        lines.append(b64[i : i + 64])
+        lines.append(b64[i: i + 64])
     lines.append("-----END PUBLIC KEY-----")
     return "\n".join(lines)
 
@@ -139,7 +233,7 @@ def _verify_obs_signature(
     hash_hex: Optional[str] = None,
 ) -> bool:
     """
-    Verify one observation.
+    Verify one observation's signature.
 
     ESP sends:
       sig: {
@@ -214,6 +308,47 @@ def _verify_obs_signature(
         return False
 
 
+def _upsert_unregistered_ap(
+    *,
+    device: Device,
+    ssid: str,
+    bssid: str,
+    oui: str,
+    channel: int,
+    now,
+):
+    """
+    Maintain the UnregisteredAP registry:
+
+    - One row per unique (bssid, ssid, channel, oui) combo.
+    - Increment seen_count and update last_seen / last_device.
+    - First time we see it: create with first_seen = last_seen = now.
+    """
+    lookup = {
+        "bssid": (bssid or ""),
+        "ssid": (ssid or ""),
+        "channel": channel or None,
+        "oui": (oui or "").upper(),
+    }
+
+    obj, created = UnregisteredAP.objects.get_or_create(
+        **lookup,
+        defaults={
+            "first_seen": now,
+            "last_seen": now,
+            "last_device": device,
+            "seen_count": 1,
+            "is_active": True,
+        },
+    )
+    if not created:
+        obj.last_seen = now
+        obj.last_device = device
+        obj.seen_count += 1
+        # we do NOT auto-reactivate if is_active was set False by operator
+        obj.save(update_fields=["last_seen", "last_device", "seen_count"])
+
+
 # ---------------------------------------------------------------------
 # Ingest endpoint (secure ESP32 -> Django)
 # ---------------------------------------------------------------------
@@ -221,7 +356,13 @@ def _verify_obs_signature(
 def ingest_observation(request):
     """
     Strict-ish ingest: ESP32 posts observations signed per-record.
-    Now also builds a per-device hash chain for chain-of-custody.
+
+    For each observation we:
+      - verify ECDSA P-256 signature
+      - compute hash chain (prev_chain_hash + payload_hash + server_ts)
+      - snapshot whitelist status via _match_whitelist
+      - set is_flagged if not WHITELISTED_STRONG/WEAK
+      - upsert an UnregisteredAP record when status == UNREGISTERED_AP
     """
     if request.method != "POST":
         return HttpResponseBadRequest("POST required")
@@ -293,14 +434,16 @@ def ingest_observation(request):
 
             # map fields
             ssid = o.get("ssid") or ""
-            bssid = o.get("bssid") or ""
-            oui = o.get("oui") or ""
+            bssid = (o.get("bssid") or "").upper()
+            oui = (o.get("oui") or "").upper()
+
             raw_ch = o.get("ch") or o.get("channel") or 1
             try:
                 channel = int(raw_ch)
             except (TypeError, ValueError):
                 channel = 1
 
+            band = o.get("band")  # optional, may be None
             security = o.get("security")
             rsn_text = o.get("rsn")
             akm_list = o.get("akm")
@@ -311,20 +454,25 @@ def ingest_observation(request):
             beacons = o.get("beacons")
             last_seen_ms = o.get("last_seen_ms")
 
-            # whitelist decision
+            # whitelist decision at ingest (stored as snapshot)
             matched_group, matched_entry, status = _match_whitelist(
                 ssid=ssid,
                 bssid=bssid,
                 security=security,
                 channel=channel,
                 oui=oui,
+                band=band,
+                rsn_text=rsn_text,
+                akm_list=akm_list,
+                pmf_capable=bool(pmf_block.get("cap")),
+                pmf_required=bool(pmf_block.get("req")),
             )
 
             # 🔐 HASH CHAIN PART
             canonical_bytes = (canonical or "").encode("utf-8")
             payload_hash = hashchain.compute_payload_hash(canonical_bytes)
 
-            # make previous lookup deterministic
+            # previous link: last record for this device
             last_obs = (
                 AccessPointObservation.objects
                 .filter(device=device)
@@ -375,6 +523,17 @@ def ingest_observation(request):
                 integrity_ok=True,
             )
             stored_ids.append(obj.id)
+
+            # Maintain the unique unregistered AP registry
+            if status == "UNREGISTERED_AP":
+                _upsert_unregistered_ap(
+                    device=device,
+                    ssid=ssid,
+                    bssid=bssid,
+                    oui=oui,
+                    channel=channel,
+                    now=now,
+                )
 
     logger.info(
         "Ingest from %s: stored=%d rejected_sig=%d",
@@ -561,7 +720,7 @@ def hashchain_analysis(request):
 def _build_chain_rows_from_queryset(obs_qs):
     """
     Helper to replay the chain over an ordered queryset of observations.
-    Returns (rows, timeline_points, totals)
+    Returns (rows, timeline_points, totals).
     """
     rows = []
     timeline_points = []

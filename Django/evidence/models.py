@@ -14,7 +14,10 @@ class AccessPointWhitelistGroup(models.Model):
       ssid = "Hospital-WiFi"
       strict = True  -> only the entries under this group are accepted
     """
-    name = models.CharField(max_length=128, help_text="Friendly name, e.g. 'Ward 3A Wi-Fi'")
+    name = models.CharField(
+        max_length=128,
+        help_text="Friendly name, e.g. 'Ward 3A Wi-Fi'",
+    )
     ssid = models.CharField(max_length=64, db_index=True)
     location = models.CharField(
         max_length=128,
@@ -54,38 +57,79 @@ class AccessPointWhitelistGroup(models.Model):
 
 class AccessPointWhitelistEntry(models.Model):
     """
-    Actual identifiers (BSSID, security, channel) that belong to a whitelist group.
+    Actual identifiers (BSSID, security, channel, etc.) that belong to a whitelist group.
+
+    The more fields you fill in, the stricter the matching becomes:
+      - If a field is left blank/NULL here, it is ignored in matching.
+      - If it is set here and differs on an observation, the matcher
+        can return a specific *_MISMATCH evil-twin style status.
     """
     group = models.ForeignKey(
         AccessPointWhitelistGroup,
         on_delete=models.CASCADE,
         related_name="entries",
     )
-    # exact AP MAC, optional
+
+    # exact AP MAC (optional for weak rules)
     bssid = models.CharField(
         max_length=17,
         blank=True,
         null=True,
         db_index=True,
-        help_text="Exact AP MAC, e.g. AA:BB:CC:DD:EE:FF. Leave empty to allow any BSSID under this SSID.",
+        help_text=(
+            "Exact AP MAC, e.g. AA:BB:CC:DD:EE:FF. "
+            "Leave empty to allow any BSSID under this SSID."
+        ),
     )
+
+    # security / radio properties
     security = models.CharField(
         max_length=64,
         blank=True,
         null=True,
-        help_text="Expected security (compared to ESP32 'security' field).",
+        help_text="Expected security (compared to ESP32 'security' field), e.g. WPA2-PSK.",
     )
     channel = models.IntegerField(
         blank=True,
         null=True,
         help_text="Expected channel for this AP. Leave blank to ignore.",
     )
+    band = models.CharField(
+        max_length=16,
+        blank=True,
+        null=True,
+        help_text="Expected band label, e.g. '2.4GHz', '5GHz', '6GHz' (optional).",
+    )
+
     vendor_oui = models.CharField(
         max_length=8,
         blank=True,
         null=True,
-        help_text="OUI prefix, e.g. 'F09FC2' (optional, from BSSID).",
+        help_text="Expected OUI prefix, e.g. 'F09FC2' (optional, from BSSID).",
     )
+
+    # RSN / AKM / PMF expectations (all optional)
+    rsn_text = models.CharField(
+        max_length=128,
+        blank=True,
+        null=True,
+        help_text="Expected RSN text, e.g. 'CCMP/CCMP'. Leave blank to ignore.",
+    )
+    akm_list = models.CharField(
+        max_length=256,
+        blank=True,
+        null=True,
+        help_text="Expected AKM list, e.g. 'PSK,SAE'. Leave blank to ignore.",
+    )
+    pmf_capable = models.BooleanField(
+        default=False,
+        help_text="Check if AP is expected to advertise PMF capable. Leave default if not used.",
+    )
+    pmf_required = models.BooleanField(
+        default=False,
+        help_text="Check if AP is expected to require PMF. Leave default if not used.",
+    )
+
     is_active = models.BooleanField(
         default=True,
         help_text="Uncheck to disable this exact AP entry without deleting it.",
@@ -107,7 +151,76 @@ class AccessPointWhitelistEntry(models.Model):
 
 
 # --------------------------------------------------------------------------
-# 2) OBSERVATIONS (ESP32 uploads)
+# 2) UNIQUE UNREGISTERED / UNKNOWN AP REGISTRY
+# --------------------------------------------------------------------------
+class UnregisteredAP(models.Model):
+    """
+    Registry of unique unwhitelisted APs.
+
+    Populated automatically when an observation's match_status is UNREGISTERED_AP.
+    Each row represents a BSSID (or SSID+channel+OUI combo) that has been
+    seen as unregistered at least once, with a running count and timestamps.
+    """
+    ssid = models.CharField(max_length=64, blank=True)
+    bssid = models.CharField(
+        max_length=17,
+        blank=True,
+        db_index=True,
+        help_text="AP MAC if known, otherwise empty for SSID-only entries.",
+    )
+    oui = models.CharField(
+        max_length=8,
+        blank=True,
+        help_text="First 3 bytes of BSSID, as hex (e.g. 'F09FC2').",
+    )
+    channel = models.IntegerField(
+        blank=True,
+        null=True,
+        help_text="Most recently seen channel for this AP.",
+    )
+
+    first_seen = models.DateTimeField(help_text="When this unregistered AP was first seen.")
+    last_seen = models.DateTimeField(help_text="When this unregistered AP was last seen.")
+
+    last_device = models.ForeignKey(
+        "devices.Device",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="unregistered_aps_last_seen",
+        help_text="Last device that saw this AP.",
+    )
+    seen_count = models.PositiveIntegerField(default=0, help_text="How many times we've seen it.")
+
+    # soft delete / acknowledgement
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Active = still of interest; False = acknowledged / suppressed.",
+    )
+    notes = models.TextField(
+        blank=True,
+        help_text="Operator notes / investigation outcome.",
+    )
+
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-last_seen"]
+        indexes = [
+            models.Index(fields=["bssid"]),
+            models.Index(fields=["ssid"]),
+            models.Index(fields=["is_active"]),
+        ]
+        verbose_name = "Unregistered AP"
+        verbose_name_plural = "Unregistered APs"
+
+    def __str__(self):
+        return f"{self.ssid or '(no SSID)'} / {self.bssid or 'no BSSID'}"
+
+
+# --------------------------------------------------------------------------
+# 3) OBSERVATIONS (ESP32 uploads)
 # --------------------------------------------------------------------------
 class AccessPointObservation(models.Model):
     """
@@ -221,7 +334,7 @@ class AccessPointObservation(models.Model):
         help_text="Server ingest timestamp",
     )
 
-    # whitelist match
+    # whitelist match (snapshot at ingest)
     matched_group = models.ForeignKey(
         AccessPointWhitelistGroup,
         on_delete=models.SET_NULL,
@@ -242,7 +355,13 @@ class AccessPointObservation(models.Model):
         max_length=64,
         blank=True,
         null=True,
-        help_text="WHITELISTED_STRONG / WHITELISTED_WEAK / KNOWN_SSID_BUT_UNEXPECTED_AP / UNREGISTERED_AP",
+        help_text=(
+            "Snapshot status at ingest. Possible values include: "
+            "WHITELISTED_STRONG, WHITELISTED_WEAK, "
+            "CHANNEL_MISMATCH, SECURITY_MISMATCH, VENDOR_MISMATCH, "
+            "BAND_MISMATCH, RSN_MISMATCH, AKM_MISMATCH, PMF_MISMATCH, "
+            "KNOWN_SSID_BUT_UNEXPECTED_AP, KNOWN_SSID_REJECTED, UNREGISTERED_AP."
+        ),
     )
 
     # risk / flags

@@ -91,6 +91,57 @@
     </div>
   </div>
 
+  <!-- whitelist anomalies / possible evil twin -->
+  <div class="obs-block" style="margin-top:16px;">
+    <h3>Whitelist anomalies / possible evil twin (last 24 hours)</h3>
+    <p style="margin:0 0 8px; color:var(--muted); font-size:0.75rem;">
+      These are APs where the SSID is known/whitelisted but some property changed
+      (channel, security, or unexpected BSSID). Review these first.
+    </p>
+    <div class="table-wrap">
+      <table class="table-tight">
+        <thead>
+          <tr>
+            <th>SSID</th>
+            <th>BSSID</th>
+            <th>Device</th>
+            <th>Ch</th>
+            <th>Security</th>
+            <th>RSN</th>
+            <th>AKM</th>
+            <th>PMF</th>
+            <th>Dynamic status</th>
+            <th>Last seen</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if anomaly_rows %}
+            {% for o in anomaly_rows %}
+              <tr>
+                <td>{{ o.ssid|default:"—" }}</td>
+                <td class="mono">{{ o.bssid }}</td>
+                <td>{{ o.device.name }}</td>
+                <td>{{ o.channel }}</td>
+                <td>{{ o.security|default:"—" }}</td>
+                <td>{{ o.rsn_text|default:"—" }}</td>
+                <td>{{ o.akm_list|default:"—" }}</td>
+                <td>cap={{ o.pmf_capable|yesno:"Y,N" }}, req={{ o.pmf_required|yesno:"Y,N" }}</td>
+                <td>{{ o.dynamic_status|default:o.match_status|default:"(none)" }}</td>
+                <td>{{ o.server_ts|date:"M j, Y, g:i a" }}</td>
+                <td><a class="btn-link" href="{% url 'observation_detail' o.id %}">Details</a></td>
+              </tr>
+            {% endfor %}
+          {% else %}
+            <tr>
+              <td colspan="11" class="empty">No whitelist anomalies detected in the last 24 hours.</td>
+            </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- recent alerts below -->
   <div class="obs-block" style="margin-top:14px;">
     <h3>Alert logs / recent observations (latest 20)</h3>

@@ -12,10 +12,36 @@
   <header>
     <nav>
       <a href="/" class="{% if request.path == '/' %}active{% endif %}">Dashboard</a>
-      <a href="/ui/observations" class="{% if request.path|slice:':16' == '/ui/observations' %}active{% endif %}">Observations</a>
-      <a href="/ui/devices" class="{% if request.path|slice:':11' == '/ui/devices' %}active{% endif %}">Devices</a>
-      <a href="/ui/whitelist" class="{% if request.path|slice:':13' == '/ui/whitelist' %}active{% endif %}">Whitelist</a>
-      <a href="/ui/hashchain" class="{% if request.path|slice:':13' == '/ui/hashchain' %}active{% endif %}">Hash Chain</a>
+
+      <a href="/ui/observations"
+         class="{% if request.path|slice:':16' == '/ui/observations' %}active{% endif %}">
+        Observations
+      </a>
+
+      <a href="/ui/observations/unwhitelisted"
+         class="{% if request.path == '/ui/observations/unwhitelisted' %}active{% endif %}">
+        Unwhitelisted
+      </a>
+
+      <a href="/ui/unregistered-aps"
+         class="{% if request.path == '/ui/unregistered-aps' %}active{% endif %}">
+        Unregistered APs
+      </a>
+
+      <a href="/ui/devices"
+         class="{% if request.path|slice:':11' == '/ui/devices' %}active{% endif %}">
+        Devices
+      </a>
+
+      <a href="/ui/whitelist"
+         class="{% if request.path|slice:':13' == '/ui/whitelist' %}active{% endif %}">
+        Whitelist
+      </a>
+
+      <a href="/ui/hashchain"
+         class="{% if request.path|slice:':13' == '/ui/hashchain' %}active{% endif %}">
+        Hash Chain
+      </a>
 
       <span class="spacer"></span>
 
@@ -27,7 +53,10 @@
           <button type="submit" class="linklike">Logout</button>
         </form>
       {% else %}
-        <a href="/accounts/login/" class="{% if request.path == '/accounts/login/' %}active{% endif %}">Login</a>
+        <a href="/accounts/login/"
+           class="{% if request.path == '/accounts/login/' %}active{% endif %}">
+          Login
+        </a>
       {% endif %}
     </nav>
   </header>
