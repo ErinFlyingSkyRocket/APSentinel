@@ -1,72 +1,130 @@
 {% extends "base.html" %}
 {% block content %}
 
-<main>
-  <h1 class="page-title" style="margin-bottom:1rem;">
+<main style="padding:1.5rem;">
+  <h1 class="page-title" style="font-size:1.4rem; color:#e5e7eb; margin-bottom:1.5rem;">
     Dashboard
   </h1>
 
-  <div class="dash-row">
-    <!-- Summary stats -->
-    <div class="obs-block" style="padding:12px;">
-      <h3 style="font-size:0.9rem; margin:0 0 8px;">Summary</h3>
+  <!-- One row: Summary + ESP32 devices + Unwhitelisted APs -->
+  <div style="
+      display:flex;
+      flex-wrap:wrap;
+      gap:1.25rem;
+    ">
 
-      <div class="cards">
-        <div class="card">
-          <div style="font-size:0.85rem; color:var(--muted); margin-bottom:2px;">
+    <!-- Summary card -->
+    <div style="
+        background:#111827;
+        border:1px solid #1f2937;
+        border-radius:0.75rem;
+        padding:1rem 1.25rem;
+        flex:1 1 260px;
+        min-width:260px;
+      ">
+      <div style="font-size:0.9rem; font-weight:600; color:#e5e7eb; margin-bottom:0.75rem;">
+        Summary
+      </div>
+
+      <div style="display:flex; flex-direction:column; gap:0.75rem;">
+        <!-- Total observations -->
+        <div style="
+            background:#020617;
+            border:1px solid #1f2937;
+            border-radius:0.6rem;
+            padding:0.75rem 0.9rem;
+          ">
+          <div style="font-size:0.85rem; color:#9ca3af; margin-bottom:0.2rem;">
             Observations
           </div>
-          <div style="font-size:1.8rem; font-weight:600;">
-            {{ total_observations }}
+          <div style="font-size:1.6rem; font-weight:600; color:#e5e7eb;">
+            {{ total_observations|default:total_obs|default:"0" }}
           </div>
         </div>
 
-        <div class="card">
-          <div style="font-size:0.85rem; color:var(--muted); margin-bottom:2px;">
+        <!-- Active devices -->
+        <div style="
+            background:#020617;
+            border:1px solid #1f2937;
+            border-radius:0.6rem;
+            padding:0.75rem 0.9rem;
+          ">
+          <div style="font-size:0.85rem; color:#9ca3af; margin-bottom:0.2rem;">
             Devices (active ≤ 10 min)
           </div>
-          <div style="font-size:1.8rem; font-weight:600;">
-            {{ active_devices_count }}
+          <div style="font-size:1.6rem; font-weight:600; color:#e5e7eb;">
+            {{ active_devices_count|default:active_devices|length|default:"0" }}
           </div>
         </div>
       </div>
     </div>
 
     <!-- ESP32 / Sensor devices list -->
-    <div class="obs-block" style="padding:12px;">
-      <h3 style="font-size:0.9rem; margin:0 0 8px;">ESP32 / Sensor devices</h3>
+    <div style="
+        background:#111827;
+        border:1px solid #1f2937;
+        border-radius:0.75rem;
+        padding:1rem 1.25rem;
+        flex:1 1 260px;
+        min-width:260px;
+      ">
+      <div style="font-size:0.9rem; font-weight:600; color:#e5e7eb; margin-bottom:0.75rem;">
+        ESP32 / Sensor devices
+      </div>
 
-      <div class="table-wrap">
-        <table class="table-tight">
+      <div style="border-radius:0.5rem; overflow:hidden; border:1px solid #1f2937;">
+        <table style="width:100%; border-collapse:collapse; font-size:0.8rem;">
           <thead>
-            <tr>
-              <th>Device</th>
-              <th>Last seen</th>
-              <th>Status</th>
+            <tr style="background:#020617;">
+              <th style="text-align:left; padding:0.4rem 0.6rem; color:#9ca3af; font-weight:500;">Device</th>
+              <th style="text-align:left; padding:0.4rem 0.6rem; color:#9ca3af; font-weight:500;">Last seen</th>
+              <th style="text-align:left; padding:0.4rem 0.6rem; color:#9ca3af; font-weight:500;">Status</th>
             </tr>
           </thead>
           <tbody>
             {% for d in devices %}
-              <tr>
-                <td>{{ d.name }}</td>
-                <td>
+              <tr style="background:#020617; border-top:1px solid #1f2937;">
+                <td style="padding:0.4rem 0.6rem; color:#e5e7eb; white-space:nowrap;">
+                  {{ d.name }}
+                </td>
+                <td style="padding:0.4rem 0.6rem; color:#d1d5db; white-space:nowrap;">
                   {% if d.last_seen %}
                     {{ d.last_seen|date:"M j, Y, g:i a" }}
                   {% else %}
                     —
                   {% endif %}
                 </td>
-                <td>
+                <td style="padding:0.4rem 0.6rem;">
                   {% if d.is_online %}
-                    <span class="badge badge-up">online</span>
+                    <span style="
+                      display:inline-block;
+                      padding:0.15rem 0.6rem;
+                      font-size:0.75rem;
+                      border-radius:9999px;
+                      background:#064e3b;
+                      color:#bbf7d0;
+                    ">
+                      online
+                    </span>
                   {% else %}
-                    <span class="badge badge-down">offline</span>
+                    <span style="
+                      display:inline-block;
+                      padding:0.15rem 0.6rem;
+                      font-size:0.75rem;
+                      border-radius:9999px;
+                      background:#1f2937;
+                      color:#9ca3af;
+                    ">
+                      offline
+                    </span>
                   {% endif %}
                 </td>
               </tr>
             {% empty %}
               <tr>
-                <td colspan="3" class="empty">No devices registered yet.</td>
+                <td colspan="3" style="padding:0.5rem 0.6rem; color:#9ca3af;">
+                  No devices registered yet.
+                </td>
               </tr>
             {% endfor %}
           </tbody>
@@ -75,61 +133,102 @@
     </div>
 
     <!-- Unwhitelisted APs (last 10 minutes) -->
-    <div class="obs-block" style="padding:12px;">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-        <h3 style="font-size:0.9rem; margin:0;">Unwhitelisted APs (last 10 minutes)</h3>
-        <span style="font-size:0.8rem; color:var(--muted);">
-          Total: {{ recent_unwhitelisted_count }}
-        </span>
+    <div style="
+        background:#111827;
+        border:1px solid #1f2937;
+        border-radius:0.75rem;
+        padding:1rem 1.25rem;
+        flex:1 1 360px;
+        min-width:320px;
+      ">
+      <div style="
+          display:flex;
+          justify-content:space-between;
+          align-items:center;
+          margin-bottom:0.75rem;
+        ">
+        <div style="font-size:0.9rem; font-weight:600; color:#e5e7eb;">
+          Unwhitelisted APs (last 10 minutes)
+        </div>
+        <div style="font-size:0.8rem; color:#9ca3af;">
+          Total: {{ recent_unwhitelisted_count|default:recent_unwhitelisted|length|default:"0" }}
+        </div>
       </div>
 
-      <div class="table-wrap" style="max-height:520px; overflow-y:auto;">
-        <table class="table-tight" style="table-layout:fixed;">
-          <thead>
-            <tr>
-              <th>SSID</th>
-              <th>BSSID</th>
-              <th>Dev</th>
-              <th>Last seen</th>
-              <th>Ch</th>
-              <th>RSSI</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for obs in recent_unwhitelisted %}
-              <tr>
-                <td class="ellipsis">{{ obs.ssid|default:"<hidden>" }}</td>
-                <td class="mono ellipsis">{{ obs.bssid }}</td>
-                <td>
-                  {% if obs.device %}
-                    {{ obs.device.name }}
-                  {% else %}
-                    —
-                  {% endif %}
-                </td>
-                <td style="white-space:nowrap;">
-                  {{ obs.server_ts|date:"M j, Y, g:i a" }}
-                </td>
-                <td class="r">{{ obs.channel|default:"-" }}</td>
-                <td class="r">{{ obs.rssi_best }}/{{ obs.rssi_cur }}</td>
-                <td class="r">
-                  <a href="{% url 'observation_detail' obs.id %}" class="btn-link">
-                    Detail
-                  </a>
-                </td>
+      <div style="
+          border-radius:0.5rem;
+          border:1px solid #1f2937;
+          overflow:hidden;
+        ">
+        <!-- Scrollable table; show up to 20 rows visible -->
+        <div style="max-height:620px; overflow-y:auto;">
+          <table style="width:100%; border-collapse:collapse; font-size:0.8rem; table-layout:fixed;">
+            <thead>
+              <tr style="background:#020617;">
+                <th style="padding:0.45rem 0.6rem; text-align:left; color:#9ca3af; font-weight:500; width:18%; white-space:nowrap;">SSID</th>
+                <th style="padding:0.45rem 0.6rem; text-align:left; color:#9ca3af; font-weight:500; width:22%; white-space:nowrap;">BSSID</th>
+                <th style="padding:0.45rem 0.6rem; text-align:left; color:#9ca3af; font-weight:500; width:14%; white-space:nowrap;">Dev</th>
+                <th style="padding:0.45rem 0.6rem; text-align:left; color:#9ca3af; font-weight:500; width:22%; white-space:nowrap;">Last seen</th>
+                <th style="padding:0.45rem 0.6rem; text-align:center; color:#9ca3af; font-weight:500; width:8%;">Ch</th>
+                <th style="padding:0.45rem 0.6rem; text-align:center; color:#9ca3af; font-weight:500; width:8%;">RSSI</th>
+                <th style="padding:0.45rem 0.6rem; text-align:center; color:#9ca3af; font-weight:500; width:8%;">Details</th>
               </tr>
-            {% empty %}
-              <tr>
-                <td colspan="7" class="empty">
-                  No unwhitelisted APs in the last 10 minutes.
-                </td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {% for obs in recent_unwhitelisted|slice:":20" %}
+                <tr style="background:#020617; border-top:1px solid #111827;">
+                  <td style="padding:0.4rem 0.6rem; color:#e5e7eb; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                    {{ obs.ssid|default:"<hidden>" }}
+                  </td>
+                  <td style="padding:0.4rem 0.6rem; color:#d1d5db; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                    {{ obs.bssid }}
+                  </td>
+                  <td style="padding:0.4rem 0.6rem; color:#9ca3af; white-space:nowrap;">
+                    {% if obs.device %}{{ obs.device.name }}{% else %}—{% endif %}
+                  </td>
+                  <td style="padding:0.4rem 0.6rem; color:#9ca3af; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                    {% if obs.server_ts %}
+                      {{ obs.server_ts|date:"M j, Y, g:i a" }}
+                    {% elif obs.created_at %}
+                      {{ obs.created_at|date:"M j, Y, g:i a" }}
+                    {% else %}
+                      —
+                    {% endif %}
+                  </td>
+                  <td style="padding:0.4rem 0.6rem; color:#d1d5db; text-align:center; white-space:nowrap;">
+                    {{ obs.channel|default:"-" }}
+                  </td>
+                  <td style="padding:0.4rem 0.6rem; color:#d1d5db; text-align:center; white-space:nowrap;">
+                    {{ obs.rssi_best }}/{{ obs.rssi_cur }}
+                  </td>
+                  <td style="padding:0.4rem 0.6rem; text-align:center;">
+                    <a href="{% url 'observation_detail' obs.id %}"
+                       style="
+                         display:inline-block;
+                         padding:0.2rem 0.7rem;
+                         font-size:0.75rem;
+                         border-radius:9999px;
+                         background:#1d4ed8;
+                         color:#e5e7eb;
+                         text-decoration:none;
+                       ">
+                      Detail
+                    </a>
+                  </td>
+                </tr>
+              {% empty %}
+                <tr>
+                  <td colspan="7" style="padding:0.6rem 0.7rem; color:#9ca3af;">
+                    No unwhitelisted APs in the last 10 minutes.
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
+
   </div>
 </main>
 
