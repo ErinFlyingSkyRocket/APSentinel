@@ -63,6 +63,8 @@ void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
 // ---------- YOUR SETTINGS ----------
 #define WIFI_SSID   "YOUR_WIFI_SSID"
 #define WIFI_PASS   "YOUR_WIFI_PASSWORD"
+// Logical device name – MUST match Device.name in Django
+#define DEVICE_NAME "test"
 // e.g. https://example.com/ingest
 #define SERVER_HOST "https://your.server.domain"     // include scheme
 #define SERVER_PATH "/api/ingest/esp32/"                 // your Flask endpoint path
@@ -616,27 +618,35 @@ void printTable() {
 String buildJsonPayload() {
   // Count rows
   int n = 0;
-  for (int i = 0; i < MAX_APS; i++)
+  for (int i = 0; i < MAX_APS; i++) {
     if (table[i].inUse) n++;
+  }
 
   // Generous capacity for up to MAX_APS rows
   DynamicJsonDocument doc(16384);
 
-  // Device identity (used for enrollment)
+  // Device identity
+  //   - DEVICE_NAME is what Django uses to find Device.name
+  //   - MAC is just informative / for your own logs
   String x   = pubXHex();
   String y   = pubYHex();
   String mac = WiFi.macAddress();
 
   doc["device"]["type"] = "esp32-sniffer";
-  doc["device"]["mac"]  = mac;
-  doc["device"]["name"] = mac;          // <-- extra, helps server name it
-  doc["device"]["pubkey"]["curve"] = "P-256";
-  doc["device"]["pubkey"]["x"]     = x;
-  doc["device"]["pubkey"]["y"]     = y;
+  doc["device"]["mac"]  = mac;           // informational only (Django can log it)
+  doc["device"]["name"] = DEVICE_NAME;   // *** MUST match Device.name in Django ***
+
+  // You can keep pubkey in the JSON (server will ignore it for auth),
+  // but it's still useful if you ever want to reconstruct PEM from x/y.
+  JsonObject pk = doc["device"].createNestedObject("pubkey");
+  pk["curve"] = "P-256";
+  pk["x"]     = x;
+  pk["y"]     = y;
 
   doc["meta"]["stopped_after_ms"] = STOP_AFTER_MS;
   doc["meta"]["records"]          = n;
 
+  // Django ingestor supports "observations" (and also "aps" as a fallback)
   JsonArray arr = doc.createNestedArray("observations");
 
   for (int i = 0; i < MAX_APS; i++) {
@@ -674,8 +684,8 @@ String buildJsonPayload() {
 
     // signature block
     JsonObject sig = o.createNestedObject("sig");
-    sig["alg"] = "ECDSA_P256_SHA256";
-    sig["over"] = "SHA256(canonical)";    // <-- tell Django what we signed
+    sig["alg"]  = "ECDSA_P256_SHA256";
+    sig["over"] = "SHA256(canonical)";    // <-- tells Django what we signed
     if (ok) {
       sig["r"] = rHex;
       sig["s"] = sHex;

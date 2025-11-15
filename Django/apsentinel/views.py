@@ -315,11 +315,10 @@ def _upsert_unregistered_ap(
     now,
 ):
     """
-    Maintain the UnregisteredAP registry:
+    Maintain the UnregisteredAP registry in a backwards-compatible way.
 
-    - One row per unique (bssid, ssid, channel, oui) combo.
-    - Increment seen_count and update last_seen / last_device.
-    - First time we see it: create with first_seen = last_seen = now.
+    We try to use last_device if the model has it, but we won't crash
+    if the schema is older / different.
     """
     lookup = {
         "bssid": (bssid or ""),
@@ -328,22 +327,37 @@ def _upsert_unregistered_ap(
         "oui": (oui or "").upper(),
     }
 
-    obj, created = UnregisteredAP.objects.get_or_create(
-        **lookup,
-        defaults={
-            "first_seen": now,
-            "last_seen": now,
-            "last_device": device,
-            "seen_count": 1,
-            "is_active": True,
-        },
-    )
+    base_defaults = {
+        "first_seen": now,
+        "last_seen": now,
+        "seen_count": 1,
+        "is_active": True,
+    }
+
+    # First try: assume model has last_device
+    try:
+        obj, created = UnregisteredAP.objects.get_or_create(
+            **lookup,
+            defaults={**base_defaults, "last_device": device},
+        )
+    except TypeError:
+        # Older schema without last_device field
+        obj, created = UnregisteredAP.objects.get_or_create(
+            **lookup,
+            defaults=base_defaults,
+        )
+
     if not created:
         obj.last_seen = now
-        obj.last_device = device
         obj.seen_count += 1
-        # we do NOT auto-reactivate if is_active was set False by operator
-        obj.save(update_fields=["last_seen", "last_device", "seen_count"])
+        update_fields = ["last_seen", "seen_count"]
+
+        # Only touch last_device if the field exists
+        if hasattr(obj, "last_device"):
+            obj.last_device = device
+            update_fields.append("last_device")
+
+        obj.save(update_fields=update_fields)
 
 
 # ---------------------------------------------------------------------
@@ -354,10 +368,10 @@ def ingest_observation(request):
     """
     STRICT ingest: only pre-registered devices (in Django UI) are allowed.
 
-    Identity is based on MAC address, not the 'name' string sent by the device.
+    Identity is based on Device.name (string you configure in the UI).
 
     For each observation we:
-      - require device (by MAC) to exist and be active
+      - require device (by name) to exist and be active
       - require device.pubkey_pem to be configured
       - verify ECDSA P-256 signature
       - compute hash chain (prev_chain_hash + payload_hash + server_ts)
@@ -370,63 +384,51 @@ def ingest_observation(request):
 
     # 1) parse JSON
     try:
-        data = json.loads(request.body.decode("utf-8"))
-    except Exception:
+        body_raw = request.body.decode("utf-8")
+        data = json.loads(body_raw)
+    except Exception as e:
+        logger.exception("Invalid JSON in ingest_observation: %s", e)
         return HttpResponseBadRequest("Invalid JSON")
 
     device_block = data.get("device") or {}
     device_mac = (device_block.get("mac") or "").strip()
-    device_name_from_payload = (device_block.get("name") or "").strip()
+    device_name = (device_block.get("name") or "").strip()
 
-    if not device_mac:
-        return HttpResponseBadRequest("Device MAC required")
+    if not device_name:
+        return HttpResponseBadRequest("Device name required")
 
     # 2) device MUST be pre-registered in Django (no auto-enrolment)
-    #    We trust MAC as the identity, not the arbitrary 'name' string.
     try:
-        # adjust field name if your Device model uses a different one
-        device = Device.objects.get(mac_address__iexact=device_mac)
+        device = Device.objects.get(name=device_name)
     except Device.DoesNotExist:
         logger.warning(
-            "Ingest from UNKNOWN device: mac=%s payload_name=%s",
-            device_mac,
-            device_name_from_payload,
+            "Ingest from UNKNOWN device: name=%s mac=%s", device_name, device_mac
         )
         return HttpResponseForbidden("Unknown device")
 
-    if not device.is_active:
+    if not getattr(device, "is_active", True):
         logger.info(
-            "Ingest from INACTIVE device blocked: mac=%s db_name=%s payload_name=%s",
+            "Ingest from INACTIVE device blocked: name=%s mac=%s",
+            device_name,
             device_mac,
-            device.name,
-            device_name_from_payload,
         )
         return HttpResponseForbidden("Device not allowed")
-
-    # Optional: warn if the payload name doesn't match what you set in Django
-    if device_name_from_payload and device_name_from_payload != device.name:
-        logger.info(
-            "Device name mismatch for mac=%s: db_name=%s payload_name=%s",
-            device_mac,
-            device.name,
-            device_name_from_payload,
-        )
 
     # 3) use ONLY stored public key (no updating from ESP32 payload)
     device_pub_pem = getattr(device, "pubkey_pem", None)
     if not device_pub_pem:
         logger.error(
-            "Ingest blocked: device mac=%s db_name=%s has no pubkey_pem configured",
-            device_mac,
-            device.name,
+            "Ingest blocked: device name=%s has no pubkey_pem configured",
+            device_name,
         )
         return HttpResponseForbidden("Device public key not configured")
 
-    device.last_seen = dj_timezone.now()
-    device.save(update_fields=["last_seen"])
+    # Update last_seen if field exists
+    if hasattr(device, "last_seen"):
+        device.last_seen = dj_timezone.now()
+        device.save(update_fields=["last_seen"])
 
     # 4) observations list
-    #    New firmware may send under "aps"; keep old "observations" for compatibility.
     obs_list = data.get("observations") or data.get("aps") or []
     if not isinstance(obs_list, list):
         return HttpResponseBadRequest("'observations' or 'aps' must be a list")
@@ -436,130 +438,134 @@ def ingest_observation(request):
     rejected = 0
 
     # 5) process
-    with transaction.atomic():
-        for o in obs_list:
-            canonical = o.get("canonical")
-            sig_block = o.get("sig") or {}
-            hash_hex = o.get("hash_sha256")
+    try:
+        with transaction.atomic():
+            for o in obs_list:
+                canonical = o.get("canonical")
+                sig_block = o.get("sig") or {}
+                hash_hex = o.get("hash_sha256")
 
-            # verify signature
-            if not _verify_obs_signature(
-                device_pub_pem,
-                canonical,
-                sig_block,
-                hash_hex,
-            ):
-                rejected += 1
-                continue
+                # verify signature
+                if not _verify_obs_signature(
+                    device_pub_pem,
+                    canonical,
+                    sig_block,
+                    hash_hex,
+                ):
+                    rejected += 1
+                    continue
 
-            # map fields
-            ssid = o.get("ssid") or ""
-            bssid = (o.get("bssid") or "").upper()
-            oui = (o.get("oui") or "").upper()
+                # map fields
+                ssid = o.get("ssid") or ""
+                bssid = (o.get("bssid") or "").upper()
+                oui = (o.get("oui") or "").upper()
 
-            raw_ch = o.get("ch") or o.get("channel") or 1
-            try:
-                channel = int(raw_ch)
-            except (TypeError, ValueError):
-                channel = 1
+                raw_ch = o.get("ch") or o.get("channel") or 1
+                try:
+                    channel = int(raw_ch)
+                except (TypeError, ValueError):
+                    channel = 1
 
-            band = o.get("band")  # optional, may be None
-            security = o.get("security")
-            rsn_text = o.get("rsn")
-            akm_list = o.get("akm")
-            pmf_block = o.get("pmf") or {}
+                band = o.get("band")  # optional, may be None
+                security = o.get("security")
+                rsn_text = o.get("rsn")
+                akm_list = o.get("akm")
+                pmf_block = o.get("pmf") or {}
 
-            rssi_cur = o.get("rssi_cur")
-            rssi_best = o.get("rssi_best")
-            beacons = o.get("beacons")
-            last_seen_ms = o.get("last_seen_ms")
+                rssi_cur = o.get("rssi_cur")
+                rssi_best = o.get("rssi_best")
+                beacons = o.get("beacons")
+                last_seen_ms = o.get("last_seen_ms")
 
-            # whitelist decision at ingest (stored as snapshot)
-            matched_group, matched_entry, status = _match_whitelist(
-                ssid=ssid,
-                bssid=bssid,
-                security=security,
-                channel=channel,
-                oui=oui,
-                band=band,
-                rsn_text=rsn_text,
-                akm_list=akm_list,
-                pmf_capable=bool(pmf_block.get("cap")),
-                pmf_required=bool(pmf_block.get("req")),
-            )
+                # whitelist decision at ingest (stored as snapshot)
+                matched_group, matched_entry, status = _match_whitelist(
+                    ssid=ssid,
+                    bssid=bssid,
+                    security=security,
+                    channel=channel,
+                    oui=oui,
+                    band=band,
+                    rsn_text=rsn_text,
+                    akm_list=akm_list,
+                    pmf_capable=bool(pmf_block.get("cap")),
+                    pmf_required=bool(pmf_block.get("req")),
+                )
 
-            # 🔐 HASH CHAIN PART
-            canonical_bytes = (canonical or "").encode("utf-8")
-            payload_hash = hashchain.compute_payload_hash(canonical_bytes)
+                # 🔐 HASH CHAIN PART
+                canonical_bytes = (canonical or "").encode("utf-8")
+                payload_hash = hashchain.compute_payload_hash(canonical_bytes)
 
-            # previous link: last record for this device
-            last_obs = (
-                AccessPointObservation.objects
-                .filter(device=device)
-                .order_by("-server_ts", "-id")
-                .first()
-            )
+                # previous link: last record for this device
+                last_obs = (
+                    AccessPointObservation.objects
+                    .filter(device=device)
+                    .order_by("-server_ts", "-id")
+                    .first()
+                )
 
-            # GENESIS: first record for this device uses 32x00 as prev hash
-            genesis = b"\x00" * 32
-            prev_chain_hash = last_obs.chain_hash if last_obs else genesis
+                # GENESIS: first record for this device uses 32x00 as prev hash
+                genesis = b"\x00" * 32
+                prev_chain_hash = last_obs.chain_hash if last_obs else genesis
 
-            server_ts_iso = now.isoformat()
-            chain_hash = hashchain.compute_chain_hash(
-                prev_chain_hash=prev_chain_hash,
-                payload_hash=payload_hash,
-                server_ts_iso=server_ts_iso,
-            )
+                server_ts_iso = now.isoformat()
+                chain_hash = hashchain.compute_chain_hash(
+                    prev_chain_hash=prev_chain_hash,
+                    payload_hash=payload_hash,
+                    server_ts_iso=server_ts_iso,
+                )
 
-            # create row
-            obj = AccessPointObservation.objects.create(
-                device=device,
-                ssid=ssid,
-                bssid=bssid,
-                oui=oui,
-                channel=channel,
-                rssi_current=rssi_cur,
-                rssi_best=rssi_best,
-                beacons=beacons,
-                sensor_last_seen_ms=last_seen_ms,
-                security=security,
-                rsn_text=rsn_text,
-                akm_list=akm_list,
-                pmf_capable=bool(pmf_block.get("cap")),
-                pmf_required=bool(pmf_block.get("req")),
-                canonical=canonical,
-                hash_sha256=hash_hex,
-                sig_alg=sig_block.get("alg"),
-                sig_r=sig_block.get("r"),
-                sig_s=sig_block.get("s"),
-                server_ts=now,
-                matched_group=matched_group,
-                matched_entry=matched_entry,
-                match_status=status,
-                # 🚨 alert when not strongly/weakly whitelisted
-                is_flagged=status not in ("WHITELISTED_STRONG", "WHITELISTED_WEAK"),
-                prev_chain_hash=prev_chain_hash,
-                chain_hash=chain_hash,
-                integrity_ok=True,
-            )
-            stored_ids.append(obj.id)
-
-            # Maintain the unique unregistered AP registry
-            if status == "UNREGISTERED_AP":
-                _upsert_unregistered_ap(
+                # create row
+                obj = AccessPointObservation.objects.create(
                     device=device,
                     ssid=ssid,
                     bssid=bssid,
                     oui=oui,
                     channel=channel,
-                    now=now,
+                    rssi_current=rssi_cur,
+                    rssi_best=rssi_best,
+                    beacons=beacons,
+                    sensor_last_seen_ms=last_seen_ms,
+                    security=security,
+                    rsn_text=rsn_text,
+                    akm_list=akm_list,
+                    pmf_capable=bool(pmf_block.get("cap")),
+                    pmf_required=bool(pmf_block.get("req")),
+                    canonical=canonical,
+                    hash_sha256=hash_hex,
+                    sig_alg=sig_block.get("alg"),
+                    sig_r=sig_block.get("r"),
+                    sig_s=sig_block.get("s"),
+                    server_ts=now,
+                    matched_group=matched_group,
+                    matched_entry=matched_entry,
+                    match_status=status,
+                    # 🚨 alert when not strongly/weakly whitelisted
+                    is_flagged=status not in ("WHITELISTED_STRONG", "WHITELISTED_WEAK"),
+                    prev_chain_hash=prev_chain_hash,
+                    chain_hash=chain_hash,
+                    integrity_ok=True,
                 )
+                stored_ids.append(obj.id)
+
+                # Maintain the unique unregistered AP registry
+                if status == "UNREGISTERED_AP":
+                    _upsert_unregistered_ap(
+                        device=device,
+                        ssid=ssid,
+                        bssid=bssid,
+                        oui=oui,
+                        channel=channel,
+                        now=now,
+                    )
+    except Exception as e:
+        # Log full traceback but don't leak details to ESP32
+        logger.exception("Error during ingest_observation: %s", e)
+        return JsonResponse({"status": "error", "message": "server_error"}, status=500)
 
     logger.info(
-        "Ingest from mac=%s (db_name=%s payload_name=%s): stored=%d rejected_sig=%d",
+        "Ingest from device name=%s mac=%s: stored=%d rejected_sig=%d",
+        device_name,
         device_mac,
-        device.name,
-        device_name_from_payload,
         len(stored_ids),
         rejected,
     )
