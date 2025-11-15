@@ -65,7 +65,7 @@ void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
 #define WIFI_PASS   "YOUR_WIFI_PASSWORD"
 // e.g. https://example.com/ingest
 #define SERVER_HOST "https://your.server.domain"     // include scheme
-#define SERVER_PATH "/api/v1/ingest"                 // your Flask endpoint path
+#define SERVER_PATH "/api/ingest/esp32/"                 // your Flask endpoint path
 // Root CA PEM that issued your server cert (or self-signed root). Keep it short and correct.
 static const char *ROOT_CA_PEM = R"PEM(
 -----BEGIN CERTIFICATE-----

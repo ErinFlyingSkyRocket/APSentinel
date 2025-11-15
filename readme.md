@@ -76,7 +76,7 @@ sudo apt update && sudo apt install -y python3 python3-venv git
 ### Step 2 — Clone and enter project
 
 ```bash
-git clone https://github.com/<yourusername>/Apsentinel.git
+git clone https://github.com/ErinFlyingSkyRocket/APSentinel.git
 cd Apsentinel
 ```
 
@@ -86,6 +86,7 @@ cd Apsentinel
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+pip install django cryptography python-dotenv
 ```
 
 ### Step 4 — Database setup

@@ -1,11 +1,14 @@
+{% load static %}
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <title>Apsentinel</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  {% load static %}
+
+  <!-- Main dark-theme stylesheet -->
   <link rel="stylesheet" href="{% static 'css/style.css' %}">
+
   {% block extrastyle %}{% endblock extrastyle %}
 </head>
 <body>
@@ -75,7 +78,7 @@
   </main>
 
   <footer>
-    &copy; {{ now|date:"Y" }} Apsentinel · Network Forensics Framework
+    &copy; {% now "Y" %} Apsentinel · Network Forensics Framework
   </footer>
 
   {% block scripts %}{% endblock scripts %}
