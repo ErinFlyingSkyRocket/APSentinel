@@ -26,6 +26,14 @@
               <td>Devices (active ≤ 1h)</td>
               <td>{{ active_device_count|default:"0" }}</td>
             </tr>
+            <tr>
+              <td>APs detected (unique SSID/BSSID)</td>
+              <td>{{ total_unique_aps|default:"0" }}</td>
+            </tr>
+            <tr>
+              <td>Unregistered APs (current)</td>
+              <td>{{ total_unregistered_aps|default:"0" }}</td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -73,18 +81,19 @@
     </div>
   </div>
 
-  <!-- whitelist anomalies / possible evil twin -->
+  <!-- CURRENT whitelist anomalies / possible evil twin -->
   <div class="obs-block" style="margin-top:16px;">
     <h3>
-      Whitelist anomalies / possible evil twin (last 24 hours)
+      Whitelist anomalies / possible evil twin (current)
       <span style="float:right; font-size:0.75rem; color:var(--muted);">
         Total: {{ anomalies_critical|length }}
       </span>
     </h3>
     <p style="margin:0 0 8px; color:var(--muted); font-size:0.75rem;">
-      These are APs where the SSID is known/whitelisted but some property changed
-      (channel, security, or unexpected BSSID). Review these first.
+      These APs are <strong>currently violating</strong> whitelist expectations.
+      They remain listed until the whitelist is updated or corrected.
     </p>
+
     <div class="table-wrap">
       <table class="table-tight">
         <thead>
@@ -97,7 +106,7 @@
             <th>RSN</th>
             <th>AKM</th>
             <th>PMF</th>
-            <th>Dynamic status</th>
+            <th>Status</th>
             <th>Last seen</th>
             <th></th>
           </tr>
@@ -129,7 +138,8 @@
           {% else %}
             <tr>
               <td colspan="11" class="empty">
-                No whitelist anomalies detected in the last 24 hours.
+                No current whitelist anomalies.  
+                All known SSIDs match expected AP properties.
               </td>
             </tr>
           {% endif %}
@@ -141,7 +151,7 @@
   <!-- row 2: alert logs + unwhitelisted (side-by-side) -->
   <div class="dash-row" style="margin-top:14px;">
     <!-- Alert logs / recent observations -->
-    <div class="obs-block">
+    <div class="obs-block" style="flex:2;">
       <h3>Alert logs / recent observations (latest 20)</h3>
       <div class="table-wrap">
         <table class="table-tight">
@@ -158,9 +168,7 @@
             {% if recent_alerts %}
               {% for o in recent_alerts %}
                 <tr>
-                  <td style="white-space:nowrap;">
-                    {{ o.server_ts|date:"M j, Y, g:i a" }}
-                  </td>
+                  <td style="white-space:nowrap;">{{ o.server_ts|date:"M j, Y, g:i a" }}</td>
                   <td class="ellipsis">{{ o.ssid|default:"—" }}</td>
                   <td class="mono ch-16">{{ o.bssid }}</td>
                   <td>{{ o.device.name }}</td>
@@ -170,9 +178,7 @@
                 </tr>
               {% endfor %}
             {% else %}
-              <tr>
-                <td colspan="5" class="empty">No observations yet.</td>
-              </tr>
+              <tr><td colspan="5" class="empty">No observations yet.</td></tr>
             {% endif %}
           </tbody>
         </table>
@@ -184,7 +190,7 @@
     </div>
 
     <!-- Unwhitelisted APs (last 10 minutes) -->
-    <div class="obs-block">
+    <div class="obs-block" style="flex:1; min-width:260px;">
       <h3>
         Unwhitelisted APs (last 10 minutes)
         <span style="float:right; font-size:0.75rem; color:var(--muted);">
@@ -212,16 +218,12 @@
                   <td style="white-space:nowrap;">
                     {{ o.server_ts|date:"M j, Y, g:i a" }}
                   </td>
-                  <td>
-                    <a class="btn-link" href="{% url 'observation_detail' o.id %}">Details</a>
-                  </td>
+                  <td><a class="btn-link" href="{% url 'observation_detail' o.id %}">Details</a></td>
                 </tr>
               {% endfor %}
             {% else %}
               <tr>
-                <td colspan="5" class="empty">
-                  No unwhitelisted APs detected in the last 10 minutes.
-                </td>
+                <td colspan="5" class="empty">No unwhitelisted APs detected recently.</td>
               </tr>
             {% endif %}
           </tbody>

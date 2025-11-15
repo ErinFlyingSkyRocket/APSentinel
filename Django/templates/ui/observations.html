@@ -167,9 +167,13 @@
 
   <!-- Big whitelist anomalies / possible evil twins table -->
   <div class="obs-block" style="margin-bottom:1rem;">
-    <h3 style="font-size:0.9rem;">Whitelist anomalies / possible evil twins (last 60 min)</h3>
+
+    <h3 style="font-size:0.9rem;">Whitelist anomalies / possible evil twins (current)</h3>
+
     <p style="margin:0 0 8px; color:var(--muted); font-size:0.75rem;">
-      Known SSIDs where something changed (channel, security, or unexpected BSSID). These are high-priority to investigate.
+      These APs are <strong>currently violating</strong> your whitelist rules.
+      They stay listed here until they are removed or corrected in the whitelist.
+      (Dynamic: if the whitelist is fixed, these will disappear automatically.)
     </p>
 
     <!-- mini search for anomalies table -->
@@ -201,6 +205,7 @@
             <th></th>
           </tr>
         </thead>
+
         <tbody>
           {% if anomaly_rows %}
             {% for o in anomaly_rows %}
@@ -220,12 +225,17 @@
             {% endfor %}
           {% else %}
             <tr>
-              <td colspan="11" class="empty">No whitelist anomalies detected in the last 60 minutes.</td>
+              <td colspan="11" class="empty">
+                No current whitelist anomalies detected.  
+                <br>All known SSIDs match their expected security settings and AP properties.
+              </td>
             </tr>
           {% endif %}
         </tbody>
+
       </table>
     </div>
+
   </div>
 
   <!-- All detected APs (compact, scrollable) -->
@@ -236,6 +246,18 @@
         Total: {{ page.paginator.count }}
       </small>
     </h3>
+
+    <!-- mini search JUST for the big table (reuses main filters) -->
+    <form method="get" style="margin-bottom:0.4rem; font-size:0.75rem; display:flex; gap:0.3rem; align-items:center;">
+      <input type="text" name="q" placeholder="Search SSID/BSSID…" value="{{ q }}" style="max-width:220px;">
+      <input type="hidden" name="device" value="{{ selected_device }}">
+      <input type="hidden" name="since" value="{{ since }}">
+      <input type="hidden" name="until" value="{{ until }}">
+      <input type="hidden" name="flag_q" value="{{ flag_q }}">
+      <input type="hidden" name="alert_q" value="{{ alert_q }}">
+      <input type="hidden" name="anomaly_q" value="{{ anomaly_q }}">
+      <button type="submit" class="btn" style="padding:2px 8px;">Search</button>
+    </form>
 
     <!-- SCROLL AREA + SMALL FONT -->
     <div class="table-wrap" style="max-height:420px; overflow:auto; font-size:0.75rem;">

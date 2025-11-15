@@ -98,6 +98,30 @@ def dashboard(request):
     total_obs = AccessPointObservation.objects.count()
     total_devices = Device.objects.count()
 
+    # total unique APs detected (by SSID/BSSID)
+    total_unique_aps = (
+        AccessPointObservation.objects
+        .values("ssid", "bssid")
+        .distinct()
+        .count()
+    )
+
+    # dynamic current UNREGISTERED_APs (unique SSID/BSSID)
+    base_qs = (
+        AccessPointObservation.objects
+        .select_related("device")
+        .order_by("-server_ts")
+    )
+    latest_by_key = {}  # (ssid, bssid) -> seen
+    for o in base_qs:
+        _attach_dynamic_status(o)
+        if o.dynamic_status != "UNREGISTERED_AP":
+            continue
+        key = (o.ssid or "", o.bssid or "")
+        if key not in latest_by_key:
+            latest_by_key[key] = True
+    total_unregistered_aps = len(latest_by_key)
+
     # --- active/offline devices (last seen ≤ 1h) ---
     latest_obs_by_device = (
         AccessPointObservation.objects
@@ -179,6 +203,8 @@ def dashboard(request):
         {
             "total_obs": total_obs,
             "total_devices": total_devices,
+            "total_unique_aps": total_unique_aps,
+            "total_unregistered_aps": total_unregistered_aps,
             "active_device_count": active_count,
             "device_rows": device_rows,
             "current_unwhitelisted": current_unwhitelisted,
@@ -199,7 +225,9 @@ def observations(request):
     - Main log table is filterable and uses dynamic whitelist status.
     - 10-min flagged table recomputes dynamic_flagged each load.
     - Recent alerts table recomputes dynamic_flagged each load.
-    - Whitelist anomalies table recomputes dynamic_anomaly each load.
+    - Whitelist anomalies table recomputes dynamic_anomaly each load and
+      now shows *current* anomalies (latest row per SSID/BSSID), not just
+      last 60 minutes.
     - Each of the 3 small tables has its own SSID/BSSID search:
         flag_q, alert_q, anomaly_q.
     """
@@ -327,27 +355,38 @@ def observations(request):
     alert_page = alerts_paginator.get_page(alert_page_number)
 
     # ----------------------
-    # 4) WHITELIST ANOMALIES (dynamic_anomaly + anomaly_q)
+    # 4) WHITELIST ANOMALIES (CURRENT, dedup by SSID/BSSID + anomaly_q)
     # ----------------------
-    cutoff_60m = now - timedelta(minutes=60)
-    recent_60m = (
+    # We scan all observations (newest first), keep only dynamic_anomaly==True,
+    # and keep the latest row per (ssid, bssid). This means anomalies remain
+    # listed until the whitelist is edited so they are no longer anomalies.
+    base_anom_qs = (
         AccessPointObservation.objects
-        .filter(server_ts__gte=cutoff_60m)
         .select_related("device")
         .order_by("-server_ts")
     )
 
     anomaly_q_lc = anomaly_q.lower()
-    anomaly_rows = []
-    for o in recent_60m:
+    latest_by_key = {}  # (ssid, bssid) -> obs
+
+    for o in base_anom_qs:
         _attach_dynamic_status(o)
         if not o.dynamic_anomaly:
             continue
+
         if anomaly_q_lc:
             text = f"{o.ssid or ''} {o.bssid or ''}".lower()
             if anomaly_q_lc not in text:
                 continue
-        anomaly_rows.append(o)
+
+        key = (o.ssid or "", o.bssid or "")
+        if key not in latest_by_key:
+            latest_by_key[key] = o
+
+    anomaly_rows = list(latest_by_key.values())
+    # already in newest-first order because base_anom_qs is -server_ts
+    # but we can sort again to be explicit:
+    anomaly_rows.sort(key=lambda x: x.server_ts or now, reverse=True)
 
     # ----------------------
     # 5) MAIN TABLE PAGINATION (attach dynamic status to visible rows)
