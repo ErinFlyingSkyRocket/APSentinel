@@ -3,7 +3,7 @@
    - Table shows SSID, BSSID, OUI, CH, RSSI (current/best), #beacons, last-seen,
      SECURITY, RSN(Group/Pair), AKM(s), PMF
    - Auto-stop after 30s, then build JSON, SHA-256 + ECDSA P-256 sign per record,
-     POST over HTTPS (TLS/ECDHE) to Flask server
+     POST over HTTPS (TLS/ECDHE) or HTTP to server
    - Retry upload with BOOT button (GPIO0) if it failed
 
    Use only on networks you own / have permission to test.
@@ -13,7 +13,6 @@
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
-#include <Preferences.h>
 #include <vector>
 #include <algorithm>
 // ---- mbedTLS compatibility (2.x vs 3.x) ----
@@ -61,17 +60,32 @@ void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
 }
 
 // ---------- YOUR SETTINGS ----------
+
+// WiFi credentials (placeholder)
 #define WIFI_SSID   "YOUR_WIFI_SSID"
 #define WIFI_PASS   "YOUR_WIFI_PASSWORD"
+
 // Logical device name – MUST match Device.name in Django
-#define DEVICE_NAME "test"
-// e.g. https://example.com/ingest
-#define SERVER_HOST "https://your.server.domain"     // include scheme
-#define SERVER_PATH "/api/ingest/esp32/"                 // your Flask endpoint path
-// Root CA PEM that issued your server cert (or self-signed root). Keep it short and correct.
+#define DEVICE_NAME "YOUR_DEVICE_NAME"
+
+// Server (Django) endpoint
+#define SERVER_HOST "http://YOUR_SERVER_IP_OR_DOMAIN:8000"   // HTTP or HTTPS
+#define SERVER_PATH "/api/ingest/esp32/"                     // Django ingest endpoint
+
+// ECDSA P-256 PRIVATE KEY (paste the private key generated from Django Add Device page)
+// ⚠️ DO NOT commit your real private key to GitHub.
+// Keep this placeholder in public repos.
+static const char *DEVICE_PRIVKEY_PEM = R"KEY(
+-----BEGIN PRIVATE KEY-----
+YOUR_PRIVATE_KEY_CONTENT_HERE
+-----END PRIVATE KEY-----
+)KEY";
+
+// Root CA PEM – only needed if you switch SERVER_HOST to https://
+// Safe placeholder for GitHub repo
 static const char *ROOT_CA_PEM = R"PEM(
 -----BEGIN CERTIFICATE-----
-...YOUR ROOT/INTERMEDIATE CA HERE...
+YOUR_CA_CERTIFICATE_HERE_IF_USING_HTTPS
 -----END CERTIFICATE-----
 )PEM";
 // -----------------------------------
@@ -89,12 +103,12 @@ bool uploadDone = false;         // set true once successfully uploaded
 
 // ---------- CONFIG ----------
 #define FIXED_CH      0      // 1..13; set 0 to enable hopper
-#define DWELL_MS      800     // hopper dwell if FIXED_CH == 0
+#define DWELL_MS      800    // hopper dwell if FIXED_CH == 0
 #define MAX_CH        13
-#define PRINT_SECS    3       // force a refresh every N seconds even if no new APs
+#define PRINT_SECS    3      // force a refresh every N seconds even if no new APs
 #define MAX_APS       80
-#define MIN_RSSI      -95     // filter out very weak beacons
-#define SSID_FILTER   ""      // substring to match ("" = no filter)
+#define MIN_RSSI      -95    // filter out very weak beacons
+#define SSID_FILTER   ""     // substring to match ("" = no filter)
 // ----------------------------
 
 // Optional explicit channel list (set empty {} to use 1..MAX_CH)
@@ -128,7 +142,8 @@ String ssidFrom(const uint8_t* p, int len) {
 
 String macToString(const uint8_t m[6]) {
   char buf[18];
-  snprintf(buf, sizeof(buf), "%02X:%02X:%02X:%02X:%02X:%02X", m[0],m[1],m[2],m[3],m[4],m[5]);
+  snprintf(buf, sizeof(buf), "%02X:%02X:%02X:%02X:%02X:%02X",
+           m[0],m[1],m[2],m[3],m[4],m[5]);
   return String(buf);
 }
 
@@ -336,8 +351,9 @@ extern "C" {
   #include "mbedtls/ctr_drbg.h"
   #include "mbedtls/sha256.h"
   #include "mbedtls/bignum.h"
+  #include "mbedtls/pk.h"
 }
-Preferences prefs;
+
 mbedtls_ecdsa_context ecdsa;
 mbedtls_entropy_context entropy;
 mbedtls_ctr_drbg_context ctr_drbg;
@@ -367,65 +383,65 @@ bool fromHex(const String& hex, std::vector<uint8_t>& out) {
   return true;
 }
 
-// Load or generate device ECDSA P-256 keypair (stored in NVS as hex big-endian scalars)
+// Load device ECDSA P-256 keypair from hardcoded PEM string
+// Load device ECDSA P-256 keypair from hardcoded PEM string
 bool initKeypair() {
-  prefs.begin("ecdsa", false);
-  String dHex = prefs.getString("d", "");
-  String xHex = prefs.getString("x", "");
-  String yHex = prefs.getString("y", "");
-
   mbedtls_ecdsa_init(&ecdsa);
   mbedtls_entropy_init(&entropy);
   mbedtls_ctr_drbg_init(&ctr_drbg);
+
   const char *pers = "esp32-ecdsa";
-  if (mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func, &entropy,
-                            (const unsigned char*)pers, strlen(pers)) != 0) {
+  if (mbedtls_ctr_drbg_seed(&ctr_drbg,
+                            mbedtls_entropy_func,
+                            &entropy,
+                            (const unsigned char *)pers,
+                            strlen(pers)) != 0) {
     Serial.println("[Crypto] DRBG seed failed");
     return false;
   }
 
-  if (dHex.length() && xHex.length() && yHex.length()) {
-    // Load existing
-    if (mbedtls_ecp_group_load(&ECP_GRP(ecdsa), MBEDTLS_ECP_DP_SECP256R1) != 0) return false;
-    if (mbedtls_mpi_read_string(&ECP_D(ecdsa), 16, dHex.c_str()) != 0) return false;
-    if (mbedtls_mpi_read_string(&MPI_X(ECP_Q(ecdsa)), 16, xHex.c_str()) != 0) return false;
-    if (mbedtls_mpi_read_string(&MPI_Y(ECP_Q(ecdsa)), 16, yHex.c_str()) != 0) return false;
-    if (mbedtls_mpi_lset(&MPI_Z(ECP_Q(ecdsa)), 1) != 0) return false;
-    keyReady = true;
-    return true;
-  }
+  mbedtls_pk_context pk;
+  mbedtls_pk_init(&pk);
 
-  // Generate new
-  if (mbedtls_ecdsa_genkey(&ecdsa, MBEDTLS_ECP_DP_SECP256R1,
-                           mbedtls_ctr_drbg_random, &ctr_drbg) != 0) {
-    Serial.println("[Crypto] Keygen failed");
+  // NOTE: this version of mbedtls_pk_parse_key needs 7 arguments
+  int rc = mbedtls_pk_parse_key(
+      &pk,
+      (const unsigned char *)DEVICE_PRIVKEY_PEM,
+      strlen(DEVICE_PRIVKEY_PEM) + 1,  // include NULL terminator
+      NULL,                            // no password
+      0,                               // password length
+      NULL,                            // no RNG callback
+      NULL                             // no RNG context
+  );
+  if (rc != 0) {
+    Serial.printf("[Crypto] pk_parse_key failed (rc=%d)\n", rc);
+    mbedtls_pk_free(&pk);
     return false;
   }
-  // Store as hex strings
-  size_t n=0; char* buf=nullptr;
-  // d
-  mbedtls_mpi_write_string(&ECP_D(ecdsa), 16, nullptr, 0, &n);
-  buf = (char*)malloc(n); mbedtls_mpi_write_string(&ECP_D(ecdsa), 16, buf, n, &n);
-  dHex = String(buf); free(buf);
-  // x
-  mbedtls_mpi_write_string(&MPI_X(ECP_Q(ecdsa)), 16, nullptr, 0, &n);
-  buf = (char*)malloc(n); mbedtls_mpi_write_string(&MPI_X(ECP_Q(ecdsa)), 16, buf, n, &n);
-  xHex = String(buf); free(buf);
-  // y
-  mbedtls_mpi_write_string(&MPI_Y(ECP_Q(ecdsa)), 16, nullptr, 0, &n);
-  buf = (char*)malloc(n); mbedtls_mpi_write_string(&MPI_Y(ECP_Q(ecdsa)), 16, buf, n, &n);
-  yHex = String(buf); free(buf);
 
-  // Normalize (uppercase, no spaces)
-  dHex.toUpperCase(); xHex.toUpperCase(); yHex.toUpperCase();
+  if (!mbedtls_pk_can_do(&pk, MBEDTLS_PK_ECKEY)) {
+    Serial.println("[Crypto] Parsed key is not an EC key");
+    mbedtls_pk_free(&pk);
+    return false;
+  }
 
-  prefs.putString("d", dHex);
-  prefs.putString("x", xHex);
-  prefs.putString("y", yHex);
+  // Extract EC keypair from pk and copy into our ECDSA context
+  mbedtls_ecp_keypair *ec = mbedtls_pk_ec(pk);
+
+  rc = mbedtls_ecdsa_from_keypair(&ecdsa, ec);
+  if (rc != 0) {
+    Serial.printf("[Crypto] ecdsa_from_keypair failed (rc=%d)\n", rc);
+    mbedtls_pk_free(&pk);
+    return false;
+  }
+
   keyReady = true;
-  Serial.println("[Crypto] Generated new ECDSA keypair and stored in NVS.");
+  mbedtls_pk_free(&pk);
+
+  Serial.println("[Crypto] Loaded ECDSA P-256 private key from firmware.");
   return true;
 }
+
 
 // Build canonical string for a row
 String canonicalRow(const Row& r) {
@@ -439,9 +455,13 @@ String canonicalRow(const Row& r) {
     token.trim(); if (token.length()) parts.push_back(token);
     if (q==-1) break; p = q+1;
   }
-  std::sort(parts.begin(), parts.end(), [](const String& a, const String& b){ return a.compareTo(b)<0; });
+  std::sort(parts.begin(), parts.end(),
+            [](const String& a, const String& b){ return a.compareTo(b)<0; });
   String akmSorted;
-  for (size_t i=0;i<parts.size();i++){ if (i) akmSorted += ","; akmSorted += parts[i]; }
+  for (size_t i=0;i<parts.size();i++){
+    if (i) akmSorted += ",";
+    akmSorted += parts[i];
+  }
 
   char pmf[3]; pmf[0] = r.pmfCap?'C':'-'; pmf[1] = r.pmfReq?'R':'-'; pmf[2]=0;
 
@@ -480,28 +500,35 @@ bool ecdsaSignHashHex(const String& hashHex, String& rHex, String& sHex) {
   mbedtls_mpi r, s;
   mbedtls_mpi_init(&r); mbedtls_mpi_init(&s);
   int rc = mbedtls_ecdsa_sign(&ECP_GRP(ecdsa), &r, &s, &ECP_D(ecdsa),
-                            h.data(), h.size(),
-                            mbedtls_ctr_drbg_random, &ctr_drbg);
-  if (rc != 0) { mbedtls_mpi_free(&r); mbedtls_mpi_free(&s); return false; }
+                              h.data(), h.size(),
+                              mbedtls_ctr_drbg_random, &ctr_drbg);
+  if (rc != 0) {
+    mbedtls_mpi_free(&r); mbedtls_mpi_free(&s);
+    Serial.printf("[Crypto] ecdsa_sign failed (rc=%d)\n", rc);
+    return false;
+  }
 
   // output hex
   char *buf=nullptr; size_t n=0;
   mbedtls_mpi_write_string(&r, 16, nullptr, 0, &n);
-  buf = (char*)malloc(n); mbedtls_mpi_write_string(&r, 16, buf, n, &n);
-  rHex = String(buf); free(buf);
+  buf = (char*)malloc(n);
+  mbedtls_mpi_write_string(&r, 16, buf, n, &n);
+  rHex = String(buf);
+  free(buf);
 
   mbedtls_mpi_write_string(&s, 16, nullptr, 0, &n);
-  buf = (char*)malloc(n); mbedtls_mpi_write_string(&s, 16, buf, n, &n);
-  sHex = String(buf); free(buf);
+  buf = (char*)malloc(n);
+  mbedtls_mpi_write_string(&s, 16, buf, n, &n);
+  sHex = String(buf);
+  free(buf);
 
-  rHex.toUpperCase(); sHex.toUpperCase();
-  mbedtls_mpi_free(&r); mbedtls_mpi_free(&s);
+  rHex.toUpperCase();
+  sHex.toUpperCase();
+
+  mbedtls_mpi_free(&r);
+  mbedtls_mpi_free(&s);
   return true;
 }
-
-// Device identity (public key) for enrollment
-String pubXHex() { return prefs.getString("x", ""); }
-String pubYHex() { return prefs.getString("y", ""); }
 
 // ---------- SNIFFER CORE ----------
 void upsertAP(const String& ssid, const String& bssid, const String& oui,
@@ -528,41 +555,40 @@ void upsertAP(const String& ssid, const String& bssid, const String& oui,
     }
   }
   int freeIdx = -1;
-for (int i = 0; i < MAX_APS; i++) {
-  if (!table[i].inUse) {
-    freeIdx = i;
-    break;
-  }
-}
-
-// if no free slot, evict weakest (or stalest) AP
-if (freeIdx == -1) {
-  int worst = 0;
-  for (int i = 1; i < MAX_APS; i++) {
-    // Example policy: lowest best RSSI; you can also factor in lastSeenMs
-    if (table[i].rssiBest < table[worst].rssiBest) {
-      worst = i;
+  for (int i = 0; i < MAX_APS; i++) {
+    if (!table[i].inUse) {
+      freeIdx = i;
+      break;
     }
   }
-  freeIdx = worst;
-}
 
-Row &nr = table[freeIdx];
-nr.inUse      = true;
-nr.ssid       = ssid.length() ? ssid : "<none>";
-nr.bssid      = bssid;
-nr.oui        = oui;
-nr.rssiCur    = rssi;
-nr.rssiBest   = rssi;
-nr.ch         = ch;
-nr.beacons    = 1;
-nr.lastSeenMs = millis();
-nr.sec        = sec;
-nr.rsn        = rsn;
-nr.akm        = akm;
-nr.pmfCap     = pmfCap;
-nr.pmfReq     = pmfReq;
-newData       = true;
+  // if no free slot, evict weakest AP
+  if (freeIdx == -1) {
+    int worst = 0;
+    for (int i = 1; i < MAX_APS; i++) {
+      if (table[i].rssiBest < table[worst].rssiBest) {
+        worst = i;
+      }
+    }
+    freeIdx = worst;
+  }
+
+  Row &nr = table[freeIdx];
+  nr.inUse      = true;
+  nr.ssid       = ssid.length() ? ssid : "<none>";
+  nr.bssid      = bssid;
+  nr.oui        = oui;
+  nr.rssiCur    = rssi;
+  nr.rssiBest   = rssi;
+  nr.ch         = ch;
+  nr.beacons    = 1;
+  nr.lastSeenMs = millis();
+  nr.sec        = sec;
+  nr.rsn        = rsn;
+  nr.akm        = akm;
+  nr.pmfCap     = pmfCap;
+  nr.pmfReq     = pmfReq;
+  newData       = true;
 }
 
 // promiscuous callback
@@ -586,9 +612,11 @@ void cb(void* buf, wifi_promiscuous_pkt_type_t) {
   SecInfo s = parseSecurityAndChannel(pl, pln);
   uint8_t ch = s.chFromIE ? s.chFromIE : p->rx_ctrl.channel;
 
-  String rsnCol = s.hasRSN ? (s.rsnGroup + "/" + (s.rsnPairFirst.length()? s.rsnPairFirst : "-")) : "-";
+  String rsnCol = s.hasRSN ?
+      (s.rsnGroup + "/" + (s.rsnPairFirst.length()? s.rsnPairFirst : "-")) : "-";
 
-  upsertAP(ssid, bssid, oui, p->rx_ctrl.rssi, ch, s.sec, rsnCol, s.akms, s.pmfCap, s.pmfReq);
+  upsertAP(ssid, bssid, oui, p->rx_ctrl.rssi, ch,
+           s.sec, rsnCol, s.akms, s.pmfCap, s.pmfReq);
 }
 
 // print table
@@ -596,19 +624,25 @@ void printTable() {
   int idx[MAX_APS], n=0;
   for (int i=0;i<MAX_APS;i++) if (table[i].inUse) idx[n++] = i;
   for (int a=0;a<n;a++) for (int b=a+1;b<n;b++) {
-    if (table[idx[b]].rssiCur > table[idx[a]].rssiCur) { int t=idx[a]; idx[a]=idx[b]; idx[b]=t; }
+    if (table[idx[b]].rssiCur > table[idx[a]].rssiCur) {
+      int t=idx[a]; idx[a]=idx[b]; idx[b]=t;
+    }
   }
 
-  Serial.println(F("\nSSID                               BSSID              OUI    CH  RSSI  BEST  #BEAC  LAST(s)  SECURITY       RSN(G/P)    AKM(s)                 PMF"));
-  Serial.println(F("-----------------------------------------------------------------------------------------------------------------------------------------------------"));
+  Serial.println(F(
+    "\nSSID                               BSSID              OUI    CH  RSSI  BEST  #BEAC  LAST(s)  SECURITY       RSN(G/P)    AKM(s)                 PMF"));
+  Serial.println(F(
+    "-----------------------------------------------------------------------------------------------------------------------------------------------------"));
   uint32_t now = millis();
   for (int k=0;k<n;k++) {
     Row &r = table[idx[k]];
     char pmf[3]; pmf[0] = r.pmfCap?'C':'-'; pmf[1] = r.pmfReq?'R':'-'; pmf[2]=0;
     char line[320];
-    snprintf(line, sizeof(line), "%-32s  %-17s  %-6s %2u  %4d  %4d  %5u  %6lu  %-13s  %-10s  %-22s  %s",
+    snprintf(line, sizeof(line),
+             "%-32s  %-17s  %-6s %2u  %4d  %4d  %5u  %6lu  %-13s  %-10s  %-22s  %s",
              r.ssid.c_str(), r.bssid.c_str(), r.oui.c_str(), r.ch,
-             r.rssiCur, r.rssiBest, r.beacons, (unsigned long)((now - r.lastSeenMs)/1000),
+             r.rssiCur, r.rssiBest, r.beacons,
+             (unsigned long)((now - r.lastSeenMs)/1000),
              r.sec.c_str(), r.rsn.c_str(), r.akm.c_str(), pmf);
     Serial.println(line);
   }
@@ -618,35 +652,24 @@ void printTable() {
 String buildJsonPayload() {
   // Count rows
   int n = 0;
-  for (int i = 0; i < MAX_APS; i++) {
+  for (int i = 0; i < MAX_APS; i++)
     if (table[i].inUse) n++;
-  }
 
   // Generous capacity for up to MAX_APS rows
   DynamicJsonDocument doc(16384);
 
   // Device identity
-  //   - DEVICE_NAME is what Django uses to find Device.name
-  //   - MAC is just informative / for your own logs
-  String x   = pubXHex();
-  String y   = pubYHex();
+  //   - DEVICE_NAME must match Device.name in Django
+  //   - MAC is just informational
   String mac = WiFi.macAddress();
 
   doc["device"]["type"] = "esp32-sniffer";
-  doc["device"]["mac"]  = mac;           // informational only (Django can log it)
-  doc["device"]["name"] = DEVICE_NAME;   // *** MUST match Device.name in Django ***
-
-  // You can keep pubkey in the JSON (server will ignore it for auth),
-  // but it's still useful if you ever want to reconstruct PEM from x/y.
-  JsonObject pk = doc["device"].createNestedObject("pubkey");
-  pk["curve"] = "P-256";
-  pk["x"]     = x;
-  pk["y"]     = y;
+  doc["device"]["mac"]  = mac;
+  doc["device"]["name"] = DEVICE_NAME;
 
   doc["meta"]["stopped_after_ms"] = STOP_AFTER_MS;
   doc["meta"]["records"]          = n;
 
-  // Django ingestor supports "observations" (and also "aps" as a fallback)
   JsonArray arr = doc.createNestedArray("observations");
 
   for (int i = 0; i < MAX_APS; i++) {
@@ -685,7 +708,7 @@ String buildJsonPayload() {
     // signature block
     JsonObject sig = o.createNestedObject("sig");
     sig["alg"]  = "ECDSA_P256_SHA256";
-    sig["over"] = "SHA256(canonical)";    // <-- tells Django what we signed
+    sig["over"] = "SHA256(canonical)";
     if (ok) {
       sig["r"] = rHex;
       sig["s"] = sHex;
@@ -709,7 +732,7 @@ bool wifiEnsureConnected() {
   esp_wifi_set_promiscuous(false);
   delay(200);  // let driver drain events
 
-  // make the Arduino WiFi behave like your tiny test sketch
+  // behave like a simple STA sketch
   WiFi.persistent(false);          // don't touch flash
   WiFi.setAutoReconnect(false);
   WiFi.setSleep(false);            // keep radio awake
@@ -763,15 +786,17 @@ bool uploadJsonHTTPS(const String& payload) {
     Serial.printf("[HTTP] POST -> code %d\n", code);
     if (code > 0) {
       String resp = http.getString();
-      Serial.printf("[HTTP] Response (%d bytes): %s\n", resp.length(), resp.c_str());
+      Serial.printf("[HTTP] Response (%d bytes): %s\n",
+                    resp.length(), resp.c_str());
     } else {
-      Serial.printf("[HTTP] POST failed: %s\n", http.errorToString(code).c_str());
+      Serial.printf("[HTTP] POST failed: %s\n",
+                    http.errorToString(code).c_str());
     }
     http.end();
     delete client;
     return code >= 200 && code < 300;
   } else {
-    // plain HTTP
+    // plain HTTP (current mode)
     WiFiClient *client = new WiFiClient();
     if (!http.begin(*client, url)) {
       Serial.println("[HTTP] begin() failed (http)");
@@ -783,9 +808,11 @@ bool uploadJsonHTTPS(const String& payload) {
     Serial.printf("[HTTP] POST -> code %d\n", code);
     if (code > 0) {
       String resp = http.getString();
-      Serial.printf("[HTTP] Response (%d bytes): %s\n", resp.length(), resp.c_str());
+      Serial.printf("[HTTP] Response (%d bytes): %s\n",
+                    resp.length(), resp.c_str());
     } else {
-      Serial.printf("[HTTP] POST failed: %s\n", http.errorToString(code).c_str());
+      Serial.printf("[HTTP] POST failed: %s\n",
+                    http.errorToString(code).c_str());
     }
     http.end();
     delete client;
@@ -802,14 +829,16 @@ void setup() {
   // watch disconnect reasons
   WiFi.onEvent(WiFiEvent);
 
-  Serial.println("\nESP32 AP sniffer (dedup table) - with OUI, SECURITY, RSN, AKM, PMF + Secure Upload");
+  Serial.println(
+    "\nESP32 AP sniffer (dedup table) - with OUI, SECURITY, RSN, AKM, PMF + Secure Upload");
 
-  // crypto keypair
+  // crypto keypair (from hardcoded PEM)
   if (!initKeypair()) {
     Serial.println("[Crypto] Key init failed; will continue without signing.");
+  } else {
+    Serial.println("[Crypto] Key init OK (using hardcoded private key).");
   }
 
-  // *** IMPORTANT ***
   // Let Arduino own Wi-Fi from the start
   WiFi.mode(WIFI_STA);
   WiFi.disconnect(true, true);
@@ -818,18 +847,17 @@ void setup() {
   // set country/channels
   set_country_1_13();
 
-  // now just turn on promiscuous on the already-started driver
+  // start promiscuous mode
   esp_wifi_set_promiscuous_rx_cb(&cb);
   wifi_promiscuous_filter_t f{};
   f.filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT;
   esp_wifi_set_promiscuous_filter(&f);
   esp_wifi_set_promiscuous(true);
 
-    if (FIXED_CH) {
+  if (FIXED_CH) {
     esp_wifi_set_channel(FIXED_CH, WIFI_SECOND_CHAN_NONE);
     Serial.printf("Listening on fixed channel %d\n", FIXED_CH);
   } else {
-    // set initial channel to first in channel list (if any) or 1
     uint8_t initial_ch = (CHANNEL_LIST_LEN>0) ? CHANNEL_LIST[0] : 1;
     esp_wifi_set_channel(initial_ch, WIFI_SECOND_CHAN_NONE);
     Serial.printf("Hopper mode, initial channel %u\n", initial_ch);
@@ -857,7 +885,6 @@ void tryUploadIfNeeded() {
   }
 }
 
-
 void loop() {
 
   // auto-stop after 30s
@@ -876,8 +903,7 @@ void loop() {
       if (digitalRead(BOOT_BTN) == LOW) {
         Serial.println("[Retry] BOOT pressed. Retrying upload...");
         tryUploadIfNeeded();
-        // wait until release
-        while (digitalRead(BOOT_BTN) == LOW) delay(10);
+        while (digitalRead(BOOT_BTN) == LOW) delay(10);  // wait until release
       }
     }
     delay(200);
