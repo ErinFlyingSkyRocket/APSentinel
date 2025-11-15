@@ -6,12 +6,8 @@
     Dashboard
   </h1>
 
-  <!-- One row: Summary + ESP32 devices + Unwhitelisted APs -->
-  <div style="
-      display:flex;
-      flex-wrap:wrap;
-      gap:1.25rem;
-    ">
+  <!-- Single row: Summary + ESP32 devices + Unwhitelisted APs -->
+  <div style="display:flex; flex-wrap:wrap; gap:1.25rem;">
 
     <!-- Summary card -->
     <div style="
@@ -38,7 +34,7 @@
             Observations
           </div>
           <div style="font-size:1.6rem; font-weight:600; color:#e5e7eb;">
-            {{ total_observations|default:total_obs|default:"0" }}
+            {{ total_obs|default:"0" }}
           </div>
         </div>
 
@@ -53,13 +49,13 @@
             Devices (active ≤ 10 min)
           </div>
           <div style="font-size:1.6rem; font-weight:600; color:#e5e7eb;">
-            {{ active_devices_count|default:active_devices|length|default:"0" }}
+            {{ active_device_count|default:"0" }}
           </div>
         </div>
       </div>
     </div>
 
-    <!-- ESP32 / Sensor devices list -->
+    <!-- ESP32 / Sensor devices list (from device_rows) -->
     <div style="
         background:#111827;
         border:1px solid #1f2937;
@@ -82,20 +78,20 @@
             </tr>
           </thead>
           <tbody>
-            {% for d in devices %}
+            {% for row in device_rows %}
               <tr style="background:#020617; border-top:1px solid #1f2937;">
                 <td style="padding:0.4rem 0.6rem; color:#e5e7eb; white-space:nowrap;">
-                  {{ d.name }}
+                  {{ row.device.name }}
                 </td>
                 <td style="padding:0.4rem 0.6rem; color:#d1d5db; white-space:nowrap;">
-                  {% if d.last_seen %}
-                    {{ d.last_seen|date:"M j, Y, g:i a" }}
+                  {% if row.last_seen %}
+                    {{ row.last_seen|date:"M j, Y, g:i a" }}
                   {% else %}
                     —
                   {% endif %}
                 </td>
                 <td style="padding:0.4rem 0.6rem;">
-                  {% if d.is_online %}
+                  {% if row.status == "online" %}
                     <span style="
                       display:inline-block;
                       padding:0.15rem 0.6rem;
@@ -151,7 +147,7 @@
           Unwhitelisted APs (last 10 minutes)
         </div>
         <div style="font-size:0.8rem; color:#9ca3af;">
-          Total: {{ recent_unwhitelisted_count|default:recent_unwhitelisted|length|default:"0" }}
+          Total: {{ current_unwhitelisted|length }}
         </div>
       </div>
 
@@ -160,7 +156,7 @@
           border:1px solid #1f2937;
           overflow:hidden;
         ">
-        <!-- Scrollable table; show up to 20 rows visible -->
+        <!-- Scrollable table; show up to ~20 rows before scrolling -->
         <div style="max-height:620px; overflow-y:auto;">
           <table style="width:100%; border-collapse:collapse; font-size:0.8rem; table-layout:fixed;">
             <thead>
@@ -175,7 +171,7 @@
               </tr>
             </thead>
             <tbody>
-              {% for obs in recent_unwhitelisted|slice:":20" %}
+              {% for obs in current_unwhitelisted|slice:":20" %}
                 <tr style="background:#020617; border-top:1px solid #111827;">
                   <td style="padding:0.4rem 0.6rem; color:#e5e7eb; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
                     {{ obs.ssid|default:"<hidden>" }}
