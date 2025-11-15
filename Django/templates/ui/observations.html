@@ -228,31 +228,36 @@
     </div>
   </div>
 
-  <!-- All detected APs -->
+  <!-- All detected APs (compact, scrollable) -->
   <div class="obs-block" style="margin-top:16px;">
-    <h3 style="font-size:0.9rem;">All detected APs
-      <small style="color:var(--muted, #666); font-weight:400;">Total: {{ page.paginator.count }}</small>
+    <h3 style="font-size:0.9rem;">
+      All detected APs
+      <small style="color:var(--muted, #666); font-weight:400;">
+        Total: {{ page.paginator.count }}
+      </small>
     </h3>
-    <div class="table-wrap" style="overflow-x:auto;">
-      <table>
+
+    <!-- SCROLL AREA + SMALL FONT -->
+    <div class="table-wrap" style="max-height:420px; overflow:auto; font-size:0.75rem;">
+      <table class="table-tight" style="table-layout:fixed; font-size:0.72rem;">
         <thead>
           <tr>
-            <th>ID</th>
-            <th>Time (server)</th>
-            <th>Device</th>
-            <th>SSID</th>
-            <th>BSSID</th>
-            <th>Ch</th>
-            <th>RSSI (best/cur)</th>
-            <th>Security</th>
-            <th>RSN</th>
-            <th>AKM</th>
-            <th>PMF</th>
-            <th>Status (dynamic)</th>
-            <th>Flag / Anomaly</th>
-            <th>Chain</th>
-            <th>Integrity</th>
-            <th></th>
+            <th style="width:40px;">ID</th>
+            <th style="width:120px;">Time</th>
+            <th style="width:80px;">Device</th>
+            <th style="width:140px;">SSID</th>
+            <th style="width:150px;">BSSID</th>
+            <th style="width:40px;">Ch</th>
+            <th style="width:80px;">RSSI</th>
+            <th style="width:90px;">Security</th>
+            <th style="width:100px;">RSN</th>
+            <th style="width:80px;">AKM</th>
+            <th style="width:80px;">PMF</th>
+            <th style="width:95px;">Dyn status</th>
+            <th style="width:45px;">Flag</th>
+            <th style="width:80px;">Chain</th>
+            <th style="width:60px;">Integrity</th>
+            <th style="width:65px;"></th>
           </tr>
         </thead>
         <tbody>
@@ -260,58 +265,82 @@
             {% for o in page.object_list %}
             <tr>
               <td>{{ o.id }}</td>
-              <td>{{ o.server_ts|date:"M j, Y, g:i a" }}</td>
-              <td>
-                {% if o.device %}
-                  {{ o.device.name }}
-                {% else %}
-                  —
-                {% endif %}
+
+              <td style="white-space:nowrap;">
+                {{ o.server_ts|date:"M j, Y g:i a" }}
               </td>
-              <td>{{ o.ssid|default:"—" }}</td>
-              <td class="mono">{{ o.bssid }}</td>
-              <td>{{ o.channel }}</td>
-              <td>
+
+              <td style="white-space:nowrap;">
+                {{ o.device.name|default:"—" }}
+              </td>
+
+              <td class="ellipsis" style="max-width:140px;">
+                {{ o.ssid|default:"—" }}
+              </td>
+
+              <td class="mono" style="max-width:150px; overflow:hidden; text-overflow:ellipsis;">
+                {{ o.bssid }}
+              </td>
+
+              <td style="white-space:nowrap;">{{ o.channel }}</td>
+
+              <td style="white-space:nowrap;">
                 {% if o.rssi_best or o.rssi_current %}
                   {{ o.rssi_best|default:"—" }}/{{ o.rssi_current|default:"—" }}
                 {% else %}
                   —
                 {% endif %}
               </td>
-              <td>{{ o.security|default:"—" }}</td>
-              <td>{{ o.rsn_text|default:"—" }}</td>
-              <td>{{ o.akm_list|default:"—" }}</td>
-              <td>
+
+              <td class="ellipsis" style="max-width:90px;">
+                {{ o.security|default:"—" }}
+              </td>
+
+              <td class="ellipsis" style="max-width:100px;">
+                {{ o.rsn_text|default:"—" }}
+              </td>
+
+              <td class="ellipsis" style="max-width:80px;">
+                {{ o.akm_list|default:"—" }}
+              </td>
+
+              <td style="white-space:nowrap;">
                 cap={{ o.pmf_capable|yesno:"Y,N" }},
                 req={{ o.pmf_required|yesno:"Y,N" }}
               </td>
-              <td>
+
+              <td class="ellipsis" style="max-width:95px;">
                 {{ o.dynamic_status|default:o.match_status|default:"(none)" }}
               </td>
-              <td>
-                {% if o.dynamic_anomaly %}
-                  🔥
-                {% elif o.dynamic_flagged %}
-                  ⚠️
-                {% else %}
-                  ok
+
+              <td style="white-space:nowrap;">
+                {% if o.dynamic_anomaly %}🔥
+                {% elif o.dynamic_flagged %}⚠️
+                {% else %}ok
                 {% endif %}
               </td>
-              <td>
+
+              <td class="mono" style="max-width:80px; overflow:hidden; text-overflow:ellipsis;">
                 {% if o.chain_hex %}
                   {{ o.chain_hex|slice:":16" }}…
                 {% else %}
                   —
                 {% endif %}
               </td>
-              <td>
+
+              <td style="white-space:nowrap;">
                 {% if o.integrity_ok %}
                   ✅
                 {% else %}
                   ❌
                 {% endif %}
               </td>
-              <td><a href="{% url 'observation_detail' o.id %}" class="btn-link">Details</a></td>
+
+              <td style="white-space:nowrap;">
+                <a href="{% url 'observation_detail' o.id %}" class="btn-link">
+                  Details
+                </a>
+              </td>
             </tr>
             {% endfor %}
           {% else %}
@@ -324,7 +353,7 @@
     </div>
 
     {% if page.paginator.num_pages > 1 %}
-    <div class="pagination">
+    <div class="pagination" style="font-size:0.7rem;">
       {% if page.has_previous %}
         <a href="?page={{ page.previous_page_number }}&{{ keepqs }}">Previous</a>
       {% else %}
