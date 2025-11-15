@@ -4,24 +4,33 @@
 <main>
   <h1 class="page-title" style="font-size:1.4rem;">Dashboard</h1>
 
-  <!-- top cards -->
-  <div class="cards" style="max-width:420px; margin-bottom:16px;">
-    <div class="card" style="text-align:left;">
-      <div style="color:var(--muted); font-size:0.7rem;">Observations</div>
-      <div style="font-size:2.4rem; font-weight:600; line-height:1;">
-        {{ total_obs|default:"0" }}
-      </div>
-    </div>
-    <div class="card" style="text-align:left;">
-      <div style="color:var(--muted); font-size:0.7rem;">Devices (active ≤ 1h)</div>
-      <div style="font-size:2.4rem; font-weight:600; line-height:1;">
-        {{ active_device_count|default:"0" }}
-      </div>
-    </div>
-  </div>
-
-  <!-- row: devices + unwhitelisted -->
+  <!-- row 1: stats + ESP32 devices -->
   <div class="dash-row">
+    <!-- Key stats (observations + devices) -->
+    <div class="obs-block">
+      <h3>Observation & Device Summary</h3>
+      <div class="table-wrap">
+        <table class="table-tight">
+          <thead>
+            <tr>
+              <th>Metric</th>
+              <th>Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Total observations</td>
+              <td>{{ total_obs|default:"0" }}</td>
+            </tr>
+            <tr>
+              <td>Devices (active ≤ 1h)</td>
+              <td>{{ active_device_count|default:"0" }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- ESP32 / sensor devices -->
     <div class="obs-block">
       <h3>ESP32 / Sensor devices</h3>
@@ -58,52 +67,6 @@
                 <td colspan="3" class="empty">No devices.</td>
               </tr>
             {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- Unwhitelisted APs -->
-    <div class="obs-block">
-      <h3>
-        Unwhitelisted APs (last 10 minutes)
-        <span style="float:right; font-size:0.75rem; color:var(--muted);">
-          Total: {{ current_unwhitelisted|length }}
-        </span>
-      </h3>
-      <div class="table-wrap">
-        <table class="table-tight">
-          <thead>
-            <tr>
-              <th>SSID</th>
-              <th>BSSID</th>
-              <th>Dev</th>
-              <th>Last seen</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {% if current_unwhitelisted %}
-              {% for o in current_unwhitelisted %}
-                <tr>
-                  <td class="ellipsis">{{ o.ssid|default:"—" }}</td>
-                  <td class="mono ch-16">{{ o.bssid }}</td>
-                  <td>{{ o.device.name }}</td>
-                  <td style="white-space:nowrap;">
-                    {{ o.server_ts|date:"M j, Y, g:i a" }}
-                  </td>
-                  <td>
-                    <a class="btn-link" href="{% url 'observation_detail' o.id %}">Details</a>
-                  </td>
-                </tr>
-              {% endfor %}
-            {% else %}
-              <tr>
-                <td colspan="5" class="empty">
-                  No unwhitelisted APs detected in the last 10 minutes.
-                </td>
-              </tr>
-            {% endif %}
           </tbody>
         </table>
       </div>
@@ -175,47 +138,96 @@
     </div>
   </div>
 
-  <!-- recent alerts below -->
-  <div class="obs-block" style="margin-top:14px;">
-    <h3>Alert logs / recent observations (latest 20)</h3>
-    <div class="table-wrap">
-      <table class="table-tight">
-        <thead>
-          <tr>
-            <th>Time</th>
-            <th>SSID</th>
-            <th>BSSID</th>
-            <th>Device</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {% if recent_alerts %}
-            {% for o in recent_alerts %}
+  <!-- row 2: alert logs + unwhitelisted (side-by-side) -->
+  <div class="dash-row" style="margin-top:14px;">
+    <!-- Alert logs / recent observations -->
+    <div class="obs-block">
+      <h3>Alert logs / recent observations (latest 20)</h3>
+      <div class="table-wrap">
+        <table class="table-tight">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>SSID</th>
+              <th>BSSID</th>
+              <th>Device</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% if recent_alerts %}
+              {% for o in recent_alerts %}
+                <tr>
+                  <td style="white-space:nowrap;">
+                    {{ o.server_ts|date:"M j, Y, g:i a" }}
+                  </td>
+                  <td class="ellipsis">{{ o.ssid|default:"—" }}</td>
+                  <td class="mono ch-16">{{ o.bssid }}</td>
+                  <td>{{ o.device.name }}</td>
+                  <td>
+                    <a class="btn-link" href="{% url 'observation_detail' o.id %}">Details</a>
+                  </td>
+                </tr>
+              {% endfor %}
+            {% else %}
               <tr>
-                <td style="white-space:nowrap;">
-                  {{ o.server_ts|date:"M j, Y, g:i a" }}
-                </td>
-                <td class="ellipsis">{{ o.ssid|default:"—" }}</td>
-                <td class="mono ch-16">{{ o.bssid }}</td>
-                <td>{{ o.device.name }}</td>
-                <td>
-                  <a class="btn-link" href="{% url 'observation_detail' o.id %}">Details</a>
+                <td colspan="5" class="empty">No observations yet.</td>
+              </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+      <p style="margin:8px 14px 12px; color:var(--muted); font-size:0.7rem;">
+        For full filtering and CSV export, go to the
+        <a href="{% url 'observations' %}">Observations</a> page.
+      </p>
+    </div>
+
+    <!-- Unwhitelisted APs (last 10 minutes) -->
+    <div class="obs-block">
+      <h3>
+        Unwhitelisted APs (last 10 minutes)
+        <span style="float:right; font-size:0.75rem; color:var(--muted);">
+          Total: {{ current_unwhitelisted|length }}
+        </span>
+      </h3>
+      <div class="table-wrap">
+        <table class="table-tight">
+          <thead>
+            <tr>
+              <th>SSID</th>
+              <th>BSSID</th>
+              <th>Dev</th>
+              <th>Last seen</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% if current_unwhitelisted %}
+              {% for o in current_unwhitelisted %}
+                <tr>
+                  <td class="ellipsis">{{ o.ssid|default:"—" }}</td>
+                  <td class="mono ch-16">{{ o.bssid }}</td>
+                  <td>{{ o.device.name }}</td>
+                  <td style="white-space:nowrap;">
+                    {{ o.server_ts|date:"M j, Y, g:i a" }}
+                  </td>
+                  <td>
+                    <a class="btn-link" href="{% url 'observation_detail' o.id %}">Details</a>
+                  </td>
+                </tr>
+              {% endfor %}
+            {% else %}
+              <tr>
+                <td colspan="5" class="empty">
+                  No unwhitelisted APs detected in the last 10 minutes.
                 </td>
               </tr>
-            {% endfor %}
-          {% else %}
-            <tr>
-              <td colspan="5" class="empty">No observations yet.</td>
-            </tr>
-          {% endif %}
-        </tbody>
-      </table>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
     </div>
-    <p style="margin:8px 14px 12px; color:var(--muted); font-size:0.7rem;">
-      For full filtering and CSV export, go to the
-      <a href="{% url 'observations' %}">Observations</a> page.
-    </p>
   </div>
 </main>
 {% endblock %}
