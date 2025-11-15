@@ -1,104 +1,136 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="container-fluid px-4 py-4">
-  <h1 class="mb-4">Unwhitelisted AP Logs</h1>
-  <p class="text-muted mb-3">These are observations where no active whitelist group or entry matched.</p>
+<main>
+  <h1 class="page-title" style="margin-bottom:0.75rem;">Unwhitelisted AP Logs</h1>
 
-  <div class="card bg-dark border-secondary">
-    <div class="card-header border-secondary d-flex justify-content-between align-items-center">
-      <strong>Suspicious / Unwhitelisted</strong>
-      <span class="text-muted small">Total: {{ page_obj.paginator.count }}</span>
+  <p style="margin-bottom:0.75rem; color:var(--muted); font-size:0.85rem;">
+    These are observations where no active whitelist group or entry matched.
+  </p>
+
+  <!-- Search / filter bar -->
+  <form method="get" class="filterbar">
+    <div class="field">
+      <label for="q">Search (SSID or BSSID)</label>
+      <input type="text"
+             id="q"
+             name="q"
+             value="{{ q }}"
+             placeholder="e.g. Hospital or AA:BB:CC:DD:EE:FF">
     </div>
-    <div class="card-body p-0">
-      <div class="table-responsive">
-        <table class="table table-dark table-striped mb-0">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Time</th>
-              <th>Device</th>
-              <th>SSID</th>
-              <th>BSSID</th>
-              <th>Ch</th>
-              <th>RSSI (best/cur)</th>
-              <th>Security</th>
-              <th>RSN</th>
-              <th>AKM</th>
-              <th>PMF</th>
-              <th>Status</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for obs in page_obj %}
-              <tr>
-                <td>{{ obs.id }}</td>
-                <td style="white-space:nowrap">{{ obs.server_ts|date:"M j, Y, g:i a" }}</td>
-                <td>{{ obs.device.name }}</td>
-                <td>{{ obs.ssid|default:"&lt;hidden&gt;"|safe }}</td>
-                <td>{{ obs.bssid }}</td>
-                <td>{{ obs.channel|default:"?" }}</td>
-                <td>
-                  {% if obs.rssi_best or obs.rssi_current %}
-                    {{ obs.rssi_best|default:"—" }}/{{ obs.rssi_current|default:"—" }}
-                  {% else %}
-                    —
-                  {% endif %}
-                </td>
-                <td>{{ obs.security|default:"—" }}</td>
-                <td>{{ obs.rsn_text|default:"—" }}</td>
-                <td>{{ obs.akm_list|default:"—" }}</td>
-                <td>
-                  cap={{ obs.pmf_capable|yesno:"Y,N" }},
-                  req={{ obs.pmf_required|yesno:"Y,N" }}
-                </td>
-                <td>{{ obs.match_status|default:"(none)" }}</td>
-                <td>
-                  <a href="{% url 'observation_detail' obs.id %}" class="btn btn-sm btn-outline-light">
-                    Details
-                  </a>
-                </td>
-              </tr>
-            {% empty %}
-              <tr>
-                <td colspan="13" class="text-center text-muted p-4">
-                  No unwhitelisted observations.
-                </td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+
+    <div class="field">
+      <label>&nbsp;</label>
+      <button type="submit">Filter</button>
+    </div>
+
+    <div class="field">
+      <label>&nbsp;</label>
+      <a href="{% url 'observations_unwhitelisted' %}" class="btn">Reset</a>
+    </div>
+  </form>
+
+  <div class="obs-block">
+    <div style="padding:10px 12px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+      <div style="font-size:0.9rem; font-weight:600;">
+        Suspicious / Unwhitelisted
+      </div>
+      <div style="font-size:0.8rem; color:var(--muted);">
+        Total: {{ page_obj.paginator.count }}
       </div>
     </div>
 
+    <div class="table-wrap">
+      <table class="table-tight">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Time</th>
+            <th>Device</th>
+            <th>SSID</th>
+            <th>BSSID</th>
+            <th>Ch</th>
+            <th>RSSI (best/cur)</th>
+            <th>Security</th>
+            <th>RSN</th>
+            <th>AKM</th>
+            <th>PMF</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for obs in page_obj %}
+            <tr>
+              <td>{{ obs.id }}</td>
+              <td style="white-space:nowrap;">
+                {{ obs.server_ts|date:"M j, Y, g:i a" }}
+              </td>
+              <td>
+                {% if obs.device %}
+                  {{ obs.device.name }}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td class="ellipsis">
+                {{ obs.ssid|default:"<hidden>" }}
+              </td>
+              <td class="mono ellipsis">
+                {{ obs.bssid }}
+              </td>
+              <td class="r">{{ obs.channel|default:"?" }}</td>
+              <td class="r">
+                {% if obs.rssi_best or obs.rssi_current %}
+                  {{ obs.rssi_best|default:"—" }}/{{ obs.rssi_current|default:"—" }}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td>{{ obs.security|default:"—" }}</td>
+              <td>{{ obs.rsn_text|default:"—" }}</td>
+              <td>{{ obs.akm_list|default:"—" }}</td>
+              <td>
+                cap={{ obs.pmf_capable|yesno:"Y,N" }},
+                req={{ obs.pmf_required|yesno:"Y,N" }}
+              </td>
+              <td>{{ obs.match_status|default:"(none)" }}</td>
+              <td class="r">
+                <a href="{% url 'observation_detail' obs.id %}" class="btn-link">
+                  Details
+                </a>
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="13" class="empty">
+                No unwhitelisted observations.
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
     {% if page_obj.has_other_pages %}
-    <div class="card-footer bg-dark border-secondary d-flex justify-content-center">
-      <ul class="pagination pagination-sm mb-0">
+      <div class="pagination">
         {% if page_obj.has_previous %}
-          <li class="page-item"><a class="page-link" href="?page={{ page_obj.previous_page_number }}">&laquo;</a></li>
+          <a href="?page={{ page_obj.previous_page_number }}&q={{ q|urlencode }}">&laquo; Prev</a>
         {% else %}
-          <li class="page-item disabled"><span class="page-link">&laquo;</span></li>
+          <span>&laquo; Prev</span>
         {% endif %}
 
-        {% for num in page_obj.paginator.page_range %}
-          {% if num >= page_obj.number|add:-2 and num <= page_obj.number|add:2 %}
-            {% if num == page_obj.number %}
-              <li class="page-item active"><span class="page-link">{{ num }}</span></li>
-            {% else %}
-              <li class="page-item"><a class="page-link" href="?page={{ num }}">{{ num }}</a></li>
-            {% endif %}
-          {% endif %}
-        {% endfor %}
+        <span class="current">
+          Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
+        </span>
 
         {% if page_obj.has_next %}
-          <li class="page-item"><a class="page-link" href="?page={{ page_obj.next_page_number }}">&raquo;</a></li>
+          <a href="?page={{ page_obj.next_page_number }}&q={{ q|urlencode }}">Next &raquo;</a>
         {% else %}
-          <li class="page-item disabled"><span class="page-link">&raquo;</span></li>
+          <span>Next &raquo;</span>
         {% endif %}
-      </ul>
-    </div>
+      </div>
     {% endif %}
   </div>
-</div>
+</main>
 {% endblock %}
