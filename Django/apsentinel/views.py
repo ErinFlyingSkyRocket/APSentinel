@@ -26,6 +26,8 @@ try:
 except Exception:  # fallback if not present
     verify_ecdsa_p256_sha256 = None
 
+verify_ecdsa_p256_sha256 = None
+
 logger = logging.getLogger("apsentinel")
 
 
@@ -237,12 +239,19 @@ def _verify_obs_signature(
         "alg": "ECDSA_P256_SHA256",
         "over": "SHA256(canonical)",
         "r": "...",
-        "s": "..."
+        "s": "...",
       }
+
+    IMPORTANT:
+      - On the ESP32 we sign the 32-byte SHA256 digest of the canonical string.
+      - Here we must treat hash_hex as a *pre-hashed* digest and use
+        ec.ECDSA(Prehashed(SHA256)) instead of hashing again.
     """
     if not pem or not canonical or not sig_block:
         return False
-    if sig_block.get("alg") not in ("ECDSA_P256_SHA256", "ECDSA_P-256_SHA256"):
+
+    alg = sig_block.get("alg")
+    if alg not in ("ECDSA_P256_SHA256", "ECDSA_P-256_SHA256"):
         return False
 
     r_hex = sig_block.get("r")
@@ -252,54 +261,41 @@ def _verify_obs_signature(
 
     over = sig_block.get("over")
 
-    # 1) try user helper if present
-    if verify_ecdsa_p256_sha256 is not None:
-        try:
-            if over == "SHA256(canonical)":
-                if not hash_hex:
-                    return False
-                msg = bytes.fromhex(hash_hex)
-                return verify_ecdsa_p256_sha256(
-                    pem_public_key=pem,
-                    message=msg,
-                    r_hex=r_hex,
-                    s_hex=s_hex,
-                )
-            else:  # legacy path
-                return verify_ecdsa_p256_sha256(
-                    pem_public_key=pem,
-                    message=canonical.encode("utf-8"),
-                    r_hex=r_hex,
-                    s_hex=s_hex,
-                )
-        except Exception:
-            return False
-
-    # 2) fallback: cryptography
+    # ------------------------------------------------------------------
+    # Built-in verification using cryptography
+    # ------------------------------------------------------------------
     try:
         from cryptography.hazmat.primitives import hashes, serialization
         from cryptography.hazmat.primitives.asymmetric import ec
-        from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
+        from cryptography.hazmat.primitives.asymmetric.utils import (
+            encode_dss_signature,
+            Prehashed,
+        )
 
         public_key = serialization.load_pem_public_key(pem.encode("utf-8"))
+
         r_int = int(r_hex, 16)
         s_int = int(s_hex, 16)
         der_sig = encode_dss_signature(r_int, s_int)
 
         if over == "SHA256(canonical)":
+            # ESP signed SHA256(canonical), so we *must not* hash again here.
             if not hash_hex:
                 return False
+            digest = bytes.fromhex(hash_hex)
             public_key.verify(
                 der_sig,
-                bytes.fromhex(hash_hex),
-                ec.ECDSA(hashes.SHA256()),
+                digest,
+                ec.ECDSA(Prehashed(hashes.SHA256())),
             )
         else:
+            # Legacy path: ESP signed the raw canonical string
             public_key.verify(
                 der_sig,
                 canonical.encode("utf-8"),
                 ec.ECDSA(hashes.SHA256()),
             )
+
         return True
     except Exception:
         return False
