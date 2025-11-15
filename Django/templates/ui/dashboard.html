@@ -2,12 +2,15 @@
 {% block content %}
 
 <main>
-  <h1 class="page-title" style="margin-bottom:1rem;">Dashboard</h1>
+  <h1 class="page-title" style="margin-bottom:1rem;">
+    Dashboard
+  </h1>
 
   <div class="dash-row">
-    <!-- Stats block -->
+    <!-- Summary stats -->
     <div class="obs-block" style="padding:12px;">
       <h3 style="font-size:0.9rem; margin:0 0 8px;">Summary</h3>
+
       <div class="cards">
         <div class="card">
           <div style="font-size:0.85rem; color:var(--muted); margin-bottom:2px;">
@@ -17,6 +20,7 @@
             {{ total_observations }}
           </div>
         </div>
+
         <div class="card">
           <div style="font-size:0.85rem; color:var(--muted); margin-bottom:2px;">
             Devices (active ≤ 10 min)
@@ -28,7 +32,7 @@
       </div>
     </div>
 
-    <!-- ESP32 / Sensor devices -->
+    <!-- ESP32 / Sensor devices list -->
     <div class="obs-block" style="padding:12px;">
       <h3 style="font-size:0.9rem; margin:0 0 8px;">ESP32 / Sensor devices</h3>
 
@@ -108,11 +112,11 @@
                   {{ obs.server_ts|date:"M j, Y, g:i a" }}
                 </td>
                 <td class="r">{{ obs.channel|default:"-" }}</td>
+                <td class="r">{{ obs.rssi_best }}/{{ obs.rssi_cur }}</td>
                 <td class="r">
-                  {{ obs.rssi_best }}/{{ obs.rssi_cur }}
-                </td>
-                <td class="r">
-                  <a href="{% url 'observation_detail' obs.id %}" class="btn-link">Detail</a>
+                  <a href="{% url 'observation_detail' obs.id %}" class="btn-link">
+                    Detail
+                  </a>
                 </td>
               </tr>
             {% empty %}
@@ -125,7 +129,6 @@
           </tbody>
         </table>
       </div>
-
     </div>
   </div>
 </main>
