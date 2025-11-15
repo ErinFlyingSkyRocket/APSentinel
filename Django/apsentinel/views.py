@@ -198,6 +198,7 @@ def _xy_to_uncompressed_pubkey(x_hex: str, y_hex: str) -> bytes:
 def _build_pem_from_xy(x_hex: str, y_hex: str) -> str:
     """
     Build a SubjectPublicKeyInfo DER → PEM for P-256 from x/y.
+    (Kept for potential tooling / admin helpers; not used in ingest anymore.)
     """
     # ASN.1 header for: ecPublicKey, prime256v1
     spki_prefix = bytes.fromhex(
@@ -351,9 +352,13 @@ def _upsert_unregistered_ap(
 @csrf_exempt
 def ingest_observation(request):
     """
-    Strict-ish ingest: ESP32 posts observations signed per-record.
+    STRICT ingest: only pre-registered devices (in Django UI) are allowed.
+
+    Identity is based on MAC address, not the 'name' string sent by the device.
 
     For each observation we:
+      - require device (by MAC) to exist and be active
+      - require device.pubkey_pem to be configured
       - verify ECDSA P-256 signature
       - compute hash chain (prev_chain_hash + payload_hash + server_ts)
       - snapshot whitelist status via _match_whitelist
@@ -370,36 +375,55 @@ def ingest_observation(request):
         return HttpResponseBadRequest("Invalid JSON")
 
     device_block = data.get("device") or {}
-    device_mac = device_block.get("mac")
-    device_name = device_block.get("name") or device_mac
+    device_mac = (device_block.get("mac") or "").strip()
+    device_name_from_payload = (device_block.get("name") or "").strip()
+
     if not device_mac:
         return HttpResponseBadRequest("Device MAC required")
 
-    # 2) device
-    device, _ = Device.objects.get_or_create(
-        name=device_name,
-        defaults={"is_active": True},
-    )
+    # 2) device MUST be pre-registered in Django (no auto-enrolment)
+    #    We trust MAC as the identity, not the arbitrary 'name' string.
+    try:
+        # adjust field name if your Device model uses a different one
+        device = Device.objects.get(mac_address__iexact=device_mac)
+    except Device.DoesNotExist:
+        logger.warning(
+            "Ingest from UNKNOWN device: mac=%s payload_name=%s",
+            device_mac,
+            device_name_from_payload,
+        )
+        return HttpResponseForbidden("Unknown device")
+
     if not device.is_active:
+        logger.info(
+            "Ingest from INACTIVE device blocked: mac=%s db_name=%s payload_name=%s",
+            device_mac,
+            device.name,
+            device_name_from_payload,
+        )
         return HttpResponseForbidden("Device not allowed")
 
-    # 3) ensure pubkey
+    # Optional: warn if the payload name doesn't match what you set in Django
+    if device_name_from_payload and device_name_from_payload != device.name:
+        logger.info(
+            "Device name mismatch for mac=%s: db_name=%s payload_name=%s",
+            device_mac,
+            device.name,
+            device_name_from_payload,
+        )
+
+    # 3) use ONLY stored public key (no updating from ESP32 payload)
     device_pub_pem = getattr(device, "pubkey_pem", None)
     if not device_pub_pem:
-        pubkey_block = device_block.get("pubkey") or {}
-        x_hex = pubkey_block.get("x")
-        y_hex = pubkey_block.get("y")
-        if not x_hex or not y_hex:
-            return HttpResponseForbidden("Device public key required")
-        try:
-            device_pub_pem = _build_pem_from_xy(x_hex, y_hex)
-        except Exception as e:
-            logger.warning("Failed to build PEM from XY for %s: %s", device_mac, e)
-            return HttpResponseForbidden("Bad public key")
-        device.pubkey_pem = device_pub_pem
+        logger.error(
+            "Ingest blocked: device mac=%s db_name=%s has no pubkey_pem configured",
+            device_mac,
+            device.name,
+        )
+        return HttpResponseForbidden("Device public key not configured")
 
     device.last_seen = dj_timezone.now()
-    device.save()
+    device.save(update_fields=["last_seen"])
 
     # 4) observations list
     #    New firmware may send under "aps"; keep old "observations" for compatibility.
@@ -532,8 +556,10 @@ def ingest_observation(request):
                 )
 
     logger.info(
-        "Ingest from %s: stored=%d rejected_sig=%d",
+        "Ingest from mac=%s (db_name=%s payload_name=%s): stored=%d rejected_sig=%d",
         device_mac,
+        device.name,
+        device_name_from_payload,
         len(stored_ids),
         rejected,
     )
