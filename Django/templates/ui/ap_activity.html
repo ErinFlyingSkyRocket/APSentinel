@@ -7,13 +7,14 @@
   </h1>
 
   <p style="color:var(--muted); font-size:0.85rem; max-width:60rem; margin-bottom:1rem;">
-    Analyse when an access point or device was observed over time.
-    Filter by device / SSID / BSSID, then inspect the timeline and any long gaps
+    Analyse when an access point or device was observed over time. Filter by device / SSID / BSSID
+    and time range, then inspect the timeline, detailed AP properties, and any long gaps
     (possible downtime or anomaly windows).
   </p>
 
   <!-- Filters -->
-  <form method="get" class="filterbar" style="grid-template-columns: 1.2fr 1.2fr 1.2fr 0.6fr auto;">
+  <form method="get" class="filterbar"
+        style="grid-template-columns: 1.2fr 1.2fr 1.2fr 0.9fr 0.9fr 0.6fr auto;">
     <div class="field">
       <label for="device">Device</label>
       <select name="device" id="device">
@@ -37,7 +38,19 @@
     </div>
 
     <div class="field">
-      <label for="hours">Lookback (hours)</label>
+      <label for="since">From</label>
+      <input type="datetime-local" id="since" name="since"
+             value="{{ since|date:'Y-m-d\\TH:i' }}">
+    </div>
+
+    <div class="field">
+      <label for="until">To</label>
+      <input type="datetime-local" id="until" name="until"
+             value="{{ until|date:'Y-m-d\\TH:i' }}">
+    </div>
+
+    <div class="field">
+      <label for="hours">Lookback (fallback hours)</label>
       <input type="number" id="hours" name="hours" value="{{ hours_default }}" min="1" max="168">
     </div>
 
@@ -47,13 +60,18 @@
     </div>
   </form>
 
-  <div class="dash-row" style="margin-top:0.75rem;">
+  <div style="margin-bottom:0.5rem;">
+    <a href="{% url 'ap_activity' %}" class="btn-link">Reset all filters</a>
+  </div>
+
+  <div class="dash-row" style="margin-top:0.25rem;">
     <!-- LEFT: AP list -->
     <div class="obs-block">
       <div style="padding:0.75rem 0.9rem;">
         <h3 style="margin:0 0 0.25rem; font-size:0.9rem;">APs in selected window</h3>
         <p style="margin:0; color:var(--muted); font-size:0.75rem;">
-          Time range: {{ since|date:"M j, Y g:i a" }} – {{ until|date:"M j, Y g:i a" }} (server time)
+          Time range:
+          {{ since|date:"M j, Y g:i a" }} – {{ until|date:"M j, Y g:i a" }} (server time)
         </p>
       </div>
       <div class="table-wrap">
@@ -76,7 +94,8 @@
                   <td class="r">{{ ap.count }}</td>
                   <td>{{ ap.last_ts_max|date:"M j, Y g:i a" }}</td>
                   <td>
-                    <a href="?device={{ device_id }}&ssid={{ ssid|urlencode }}&bssid={{ ap.bssid }}&hours={{ hours_default }}" class="btn-link">
+                    <a href="?device={{ device_id }}&ssid={{ ssid|urlencode }}&bssid={{ ap.bssid }}&hours={{ hours_default }}&since={{ since|date:'Y-m-d\\TH:i' }}&until={{ until|date:'Y-m-d\\TH:i' }}"
+                       class="btn-link">
                       Focus
                     </a>
                   </td>
@@ -90,25 +109,102 @@
       </div>
     </div>
 
-    <!-- RIGHT: Timeline + gaps -->
+    <!-- RIGHT: Timeline + details + gaps -->
     <div class="obs-block">
       <div style="padding:0.75rem 0.9rem;">
-        <h3 style="margin:0 0 0.25rem; font-size:0.9rem;">
-          Timeline for
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem;">
+          <div>
+            <h3 style="margin:0 0 0.25rem; font-size:0.9rem;">
+              Timeline for
+              {% if current_bssid %}
+                <span class="mono">{{ current_bssid }}</span>
+              {% else %}
+                (no AP selected)
+              {% endif %}
+            </h3>
+            {% if current_bssid %}
+              <p style="margin:0; color:var(--muted); font-size:0.75rem;">
+                SSID: {{ current_ssid|default:"&lt;hidden&gt;"|safe }},
+                Device: {{ current_device_name }},
+                Bucket: 1-minute counts of observations
+              </p>
+            {% endif %}
+          </div>
           {% if current_bssid %}
-            <span class="mono">{{ current_bssid }}</span>
-          {% else %}
-            (no AP selected)
+            <a href="?device={{ device_id }}&ssid={{ ssid|urlencode }}&hours={{ hours_default }}&since={{ since|date:'Y-m-d\\TH:i' }}&until={{ until|date:'Y-m-d\\TH:i' }}"
+               class="btn-link">
+              Reset focus
+            </a>
           {% endif %}
-        </h3>
-        {% if current_bssid %}
-          <p style="margin:0; color:var(--muted); font-size:0.75rem;">
-            SSID: {{ current_ssid|default:"&lt;hidden&gt;"|safe }},
-            Device: {{ current_device_name }},
-            Bucket: 1-minute counts of observations
-          </p>
-        {% endif %}
+        </div>
       </div>
+
+      {% if current_bssid and ap_stats %}
+        <!-- AP details -->
+        <div style="padding:0 0.9rem 0.4rem;">
+          <table class="table-tight" style="font-size:0.78rem; margin-top:0;">
+            <tbody>
+              <tr>
+                <th>SSID</th>
+                <td>{{ current_meta.ssid|default:"&lt;hidden&gt;"|safe }}</td>
+                <th>BSSID</th>
+                <td class="mono">{{ current_meta.bssid }}</td>
+              </tr>
+              <tr>
+                <th>OUI</th>
+                <td class="mono">{{ current_meta.oui|default:"—" }}</td>
+                <th>Channel</th>
+                <td>{{ current_meta.channel|default:"—" }}</td>
+              </tr>
+              <tr>
+                <th>Security</th>
+                <td>{{ current_meta.security|default:"—" }}</td>
+                <th>RSN (group/pair)</th>
+                <td>
+                  {{ current_meta.rsn_group|default:"—" }} /
+                  {{ current_meta.rsn_pair|default:"—" }}
+                </td>
+              </tr>
+              <tr>
+                <th>AKM</th>
+                <td>{{ current_meta.akm|default:"—" }}</td>
+                <th>PMF</th>
+                <td>{{ current_meta.pmf|default:"—" }}</td>
+              </tr>
+              <tr>
+                <th>First seen</th>
+                <td>{{ ap_stats.first_seen|date:"M j, Y g:i a" }}</td>
+                <th>Last seen</th>
+                <td>{{ ap_stats.last_seen|date:"M j, Y g:i a" }}</td>
+              </tr>
+              <tr>
+                <th># observations</th>
+                <td>{{ ap_stats.count }}</td>
+                <th># devices</th>
+                <td>{{ device_count }}</td>
+              </tr>
+              <tr>
+                <th>RSSI min / max</th>
+                <td>
+                  {% if ap_stats.min_rssi != None %}
+                    {{ ap_stats.min_rssi }} / {{ ap_stats.max_rssi }}
+                  {% else %}
+                    —
+                  {% endif %}
+                </td>
+                <th>RSSI avg</th>
+                <td>
+                  {% if ap_stats.avg_rssi != None %}
+                    {{ ap_stats.avg_rssi|floatformat:1 }}
+                  {% else %}
+                    —
+                  {% endif %}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
 
       <div style="padding:0 0.9rem 0.5rem;">
         <canvas id="apTimelineChart" style="width:100%; max-height:260px;"></canvas>

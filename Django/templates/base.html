@@ -46,6 +46,11 @@
         Hash Chain
       </a>
 
+      <a href="/ui/ap-activity"
+        class="{% if request.path|slice:':14' == '/ui/ap-activity' %}active{% endif %}">
+        AP Activity
+      </a>
+
       <span class="spacer"></span>
 
       {% if request.user.is_authenticated %}

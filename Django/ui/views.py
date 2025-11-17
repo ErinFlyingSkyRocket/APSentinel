@@ -560,23 +560,38 @@ def unregistered_aps(request):
 def ap_activity(request):
     """
     Time / anomaly analysis view:
-    - Filter by device, SSID, BSSID and lookback (hours)
-    - Show timeline chart for a single AP (BSSID) or device
+    - Filter by device, SSID, BSSID, lookback (hours) and optional from/to datetimes
+    - Show timeline chart for a single AP (BSSID)
     - Show gaps where no observations were seen > threshold
+    - Show detailed AP metadata + basic RSSI stats
     """
     device_id = request.GET.get("device") or ""
     ssid = (request.GET.get("ssid") or "").strip()
     bssid = (request.GET.get("bssid") or "").strip()
 
-    # default lookback hours
+    # default lookback hours if no explicit time range given
     try:
         hours_default = int(request.GET.get("hours", "12"))
     except ValueError:
         hours_default = 12
 
     now = timezone.now()
-    since = now - timedelta(hours=hours_default)
-    until = now
+
+    since_str = request.GET.get("since") or ""
+    until_str = request.GET.get("until") or ""
+
+    # parse HTML datetime-local (YYYY-MM-DDTHH:MM) if given
+    def parse_dt(val, fallback):
+        if not val:
+            return fallback
+        try:
+            naive = datetime.fromisoformat(val)
+            return timezone.make_aware(naive, timezone.get_current_timezone())
+        except Exception:
+            return fallback
+
+    since = parse_dt(since_str, now - timedelta(hours=hours_default))
+    until = parse_dt(until_str, now)
 
     # base queryset in time window
     qs = AccessPointObservation.objects.filter(
@@ -611,17 +626,22 @@ def ap_activity(request):
     gaps = []
     current_ssid = ""
     current_device_name = ""
+    ap_stats = None
+    device_count = 0
+    current_meta = {}
     gap_threshold = timedelta(minutes=30)
 
     if current_bssid:
         ap_qs = qs.filter(bssid=current_bssid).order_by("server_ts")
 
         first_obs = ap_qs.first()
+        last_obs = ap_qs.last()
+
         if first_obs:
             current_ssid = first_obs.ssid or "<hidden>"
             current_device_name = first_obs.device.name if first_obs.device else "—"
 
-        # 1-minute buckets (simple & portable)
+        # 1-minute buckets
         bucketed = (
             ap_qs.annotate(bucket=TruncMinute("server_ts"))
             .values("bucket")
@@ -632,7 +652,7 @@ def ap_activity(request):
         chart_labels = [row["bucket"].isoformat() for row in bucketed]
         chart_values = [row["count"] for row in bucketed]
 
-        # compute gaps > threshold
+        # gaps > threshold
         timestamps = list(ap_qs.values_list("server_ts", flat=True))
         prev_ts = None
         for ts in timestamps:
@@ -647,6 +667,30 @@ def ap_activity(request):
                         }
                     )
             prev_ts = ts
+
+        # aggregate stats
+        ap_stats = ap_qs.aggregate(
+            first_seen=Min("server_ts"),
+            last_seen=Max("server_ts"),
+            count=Count("id"),
+            min_rssi=Min("rssi_current"),
+            max_rssi=Max("rssi_current"),
+            avg_rssi=Avg("rssi_current"),
+        )
+        device_count = ap_qs.values("device_id").distinct().count()
+
+        if last_obs:
+            current_meta = {
+                "ssid": last_obs.ssid or "<hidden>",
+                "bssid": last_obs.bssid or "",
+                "oui": getattr(last_obs, "oui", "") or "",
+                "channel": getattr(last_obs, "channel", ""),
+                "security": getattr(last_obs, "security", "") or "",
+                "rsn_group": getattr(last_obs, "rsn_group", "") or "",
+                "rsn_pair": getattr(last_obs, "rsn_pair", "") or "",
+                "akm": getattr(last_obs, "akm", "") or "",
+                "pmf": getattr(last_obs, "pmf", "") or "",
+            }
 
     devices = Device.objects.all().order_by("name")
 
@@ -666,6 +710,9 @@ def ap_activity(request):
         "chart_values_json": json.dumps(chart_values, cls=DjangoJSONEncoder),
         "gaps": gaps,
         "gap_threshold_minutes": int(gap_threshold.total_seconds() // 60),
+        "ap_stats": ap_stats,
+        "device_count": device_count,
+        "current_meta": current_meta,
     }
 
     return render(request, "ui/ap_activity.html", context)
