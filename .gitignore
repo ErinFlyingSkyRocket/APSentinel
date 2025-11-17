@@ -1,67 +1,86 @@
 # ============================================
-# APSENTINEL DJANGO PROJECT - GITIGNORE
+# APSENTINEL DJANGO + ESP32 PROJECT
 # ============================================
 
-# Python bytecode
+# -------------------------
+# Python / Django ignores
+# -------------------------
 __pycache__/
 *.py[cod]
 *$py.class
-
-# Virtual environment
 .venv/
-venv/
 env/
-
-# Django / Environment files
-.env
+venv/
+ENV/
 *.pem
+.env
 db.sqlite3
 
-# Local test scripts and keygens
-keygen_once.py
-sign_and_post_test.py
+# -------------------------
+# Django runtime dirs
+# -------------------------
+staticfiles/
+media/
+*.log
 
-# IDE / Editor settings
+# -------------------------
+# IDE / Editor junk
+# -------------------------
 .vscode/
 .idea/
 *.swp
 *.swo
-
-# OS junk
 .DS_Store
 Thumbs.db
 
-# Logs and temporary files
-*.log
-*.tmp
-*.bak
-*.orig
-
-# Coverage and test reports
+# -------------------------
+# Test caches
+# -------------------------
 htmlcov/
 .tox/
 .nox/
+.pytest_cache/
 coverage.xml
 *.cover
-.pytest_cache/
 
-# Static and media (if generated)
-staticfiles/
-media/
-
-# Compiled files (if any)
-build/
+# -------------------------
+# Global build outputs
+# -------------------------
 dist/
+build/
 *.egg-info/
 
-# ESP32 / PlatformIO
+# ============================================
+# ESP32
+# ============================================
+
+# Ignore all compiled firmware/binaries by default
+ESP32/**/*.bin
+ESP32/**/*.elf
+ESP32/**/*.map
+
+# Ignore Arduino build directories by default
+ESP32/**/build/
+
+# Ignore PlatformIO (if any)
 ESP32/.pio/
-ESP32/.vscode/
-ESP32/build/
-ESP32/.clangd/
 ESP32/.cache/
 
-# ESP32 secrets
-ESP32/src/config.h
+# Ignore certificates / secrets
 ESP32/private_key.pem
 ESP32/certs/
+ESP32/src/config.h
+
+# --------------------------------------------
+# EXCEPTION: allow the esp32.esp32.esp32da build folder
+# --------------------------------------------
+
+!ESP32/esp32_2/build/
+!ESP32/esp32_2/build/esp32.esp32.esp32da/
+!ESP32/esp32_2/build/esp32.esp32.esp32da/*.bin
+!ESP32/esp32_2/build/esp32.esp32.esp32da/*.bat
+
+# --------------------------------------------
+# Never commit flash encryption keys
+# --------------------------------------------
+ESP32/**/my_flash_encryption_key.bin
