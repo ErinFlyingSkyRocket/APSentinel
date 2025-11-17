@@ -1,12 +1,15 @@
 from datetime import timedelta
 import csv
+import json
 
 from django.shortcuts import render, get_object_or_404
 from django.core.paginator import Paginator
 from django.http import HttpResponse
 from django.utils.dateparse import parse_date
 from django.contrib.auth.decorators import login_required
-from django.db.models import Q, Max
+from django.db.models import Q, Max, Count
+from django.db.models.functions import TruncMinute
+from django.core.serializers.json import DjangoJSONEncoder
 from django.utils import timezone
 
 from devices.models import Device
@@ -552,3 +555,117 @@ def unregistered_aps(request):
             "total_unique": len(rows),
         },
     )
+
+
+def ap_activity(request):
+    """
+    Time / anomaly analysis view:
+    - Filter by device, SSID, BSSID and lookback (hours)
+    - Show timeline chart for a single AP (BSSID) or device
+    - Show gaps where no observations were seen > threshold
+    """
+    device_id = request.GET.get("device") or ""
+    ssid = (request.GET.get("ssid") or "").strip()
+    bssid = (request.GET.get("bssid") or "").strip()
+
+    # default lookback hours
+    try:
+        hours_default = int(request.GET.get("hours", "12"))
+    except ValueError:
+        hours_default = 12
+
+    now = timezone.now()
+    since = now - timedelta(hours=hours_default)
+    until = now
+
+    # base queryset in time window
+    qs = AccessPointObservation.objects.filter(
+        server_ts__gte=since,
+        server_ts__lte=until,
+    )
+
+    if device_id:
+        qs = qs.filter(device_id=device_id)
+    if ssid:
+        qs = qs.filter(ssid__iexact=ssid)
+    if bssid:
+        qs = qs.filter(bssid__iexact=bssid)
+
+    # left-side table: APs in window
+    ap_list = (
+        qs.values("ssid", "bssid")
+        .annotate(
+            count=Count("id"),
+            last_ts_max=Max("server_ts"),
+        )
+        .order_by("-count")[:50]
+    )
+
+    # pick one AP for chart
+    current_bssid = bssid
+    if not current_bssid and ap_list:
+        current_bssid = ap_list[0]["bssid"]
+
+    chart_labels = []
+    chart_values = []
+    gaps = []
+    current_ssid = ""
+    current_device_name = ""
+    gap_threshold = timedelta(minutes=30)
+
+    if current_bssid:
+        ap_qs = qs.filter(bssid=current_bssid).order_by("server_ts")
+
+        first_obs = ap_qs.first()
+        if first_obs:
+            current_ssid = first_obs.ssid or "<hidden>"
+            current_device_name = first_obs.device.name if first_obs.device else "—"
+
+        # 1-minute buckets (simple & portable)
+        bucketed = (
+            ap_qs.annotate(bucket=TruncMinute("server_ts"))
+            .values("bucket")
+            .annotate(count=Count("id"))
+            .order_by("bucket")
+        )
+
+        chart_labels = [row["bucket"].isoformat() for row in bucketed]
+        chart_values = [row["count"] for row in bucketed]
+
+        # compute gaps > threshold
+        timestamps = list(ap_qs.values_list("server_ts", flat=True))
+        prev_ts = None
+        for ts in timestamps:
+            if prev_ts is not None:
+                delta = ts - prev_ts
+                if delta > gap_threshold:
+                    gaps.append(
+                        {
+                            "start": prev_ts,
+                            "end": ts,
+                            "minutes": int(delta.total_seconds() // 60),
+                        }
+                    )
+            prev_ts = ts
+
+    devices = Device.objects.all().order_by("name")
+
+    context = {
+        "devices": devices,
+        "device_id": device_id,
+        "ssid": ssid,
+        "bssid": bssid,
+        "since": since,
+        "until": until,
+        "hours_default": hours_default,
+        "ap_list": ap_list,
+        "current_bssid": current_bssid,
+        "current_ssid": current_ssid,
+        "current_device_name": current_device_name,
+        "chart_labels_json": json.dumps(chart_labels, cls=DjangoJSONEncoder),
+        "chart_values_json": json.dumps(chart_values, cls=DjangoJSONEncoder),
+        "gaps": gaps,
+        "gap_threshold_minutes": int(gap_threshold.total_seconds() // 60),
+    }
+
+    return render(request, "ui/ap_activity.html", context)

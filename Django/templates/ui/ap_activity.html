@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+
+{% block content %}
+<main style="padding:1.5rem;">
+  <h1 class="page-title" style="font-size:1.4rem; margin-bottom:0.75rem;">
+    AP / Device Activity Analysis
+  </h1>
+
+  <p style="color:var(--muted); font-size:0.85rem; max-width:60rem; margin-bottom:1rem;">
+    Analyse when an access point or device was observed over time.
+    Filter by device / SSID / BSSID, then inspect the timeline and any long gaps
+    (possible downtime or anomaly windows).
+  </p>
+
+  <!-- Filters -->
+  <form method="get" class="filterbar" style="grid-template-columns: 1.2fr 1.2fr 1.2fr 0.6fr auto;">
+    <div class="field">
+      <label for="device">Device</label>
+      <select name="device" id="device">
+        <option value="">-- any --</option>
+        {% for d in devices %}
+          <option value="{{ d.id }}" {% if device_id|default:'' == d.id|stringformat:"s" %}selected{% endif %}>
+            {{ d.name }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="ssid">SSID (exact)</label>
+      <input type="text" id="ssid" name="ssid" value="{{ ssid }}" placeholder="e.g. HospitalWifi">
+    </div>
+
+    <div class="field">
+      <label for="bssid">BSSID (MAC)</label>
+      <input type="text" id="bssid" name="bssid" value="{{ bssid }}" placeholder="AA:BB:CC:DD:EE:FF">
+    </div>
+
+    <div class="field">
+      <label for="hours">Lookback (hours)</label>
+      <input type="number" id="hours" name="hours" value="{{ hours_default }}" min="1" max="168">
+    </div>
+
+    <div class="field">
+      <label>&nbsp;</label>
+      <button type="submit">Apply</button>
+    </div>
+  </form>
+
+  <div class="dash-row" style="margin-top:0.75rem;">
+    <!-- LEFT: AP list -->
+    <div class="obs-block">
+      <div style="padding:0.75rem 0.9rem;">
+        <h3 style="margin:0 0 0.25rem; font-size:0.9rem;">APs in selected window</h3>
+        <p style="margin:0; color:var(--muted); font-size:0.75rem;">
+          Time range: {{ since|date:"M j, Y g:i a" }} – {{ until|date:"M j, Y g:i a" }} (server time)
+        </p>
+      </div>
+      <div class="table-wrap">
+        <table class="table-tight">
+          <thead>
+            <tr>
+              <th>SSID</th>
+              <th>BSSID</th>
+              <th>Count</th>
+              <th>Last seen</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% if ap_list %}
+              {% for ap in ap_list %}
+                <tr {% if ap.bssid == current_bssid %}style="background:#0e1422;"{% endif %}>
+                  <td>{{ ap.ssid|default:"&lt;hidden&gt;"|safe }}</td>
+                  <td class="mono">{{ ap.bssid }}</td>
+                  <td class="r">{{ ap.count }}</td>
+                  <td>{{ ap.last_ts_max|date:"M j, Y g:i a" }}</td>
+                  <td>
+                    <a href="?device={{ device_id }}&ssid={{ ssid|urlencode }}&bssid={{ ap.bssid }}&hours={{ hours_default }}" class="btn-link">
+                      Focus
+                    </a>
+                  </td>
+                </tr>
+              {% endfor %}
+            {% else %}
+              <tr><td colspan="5" class="empty">No observations in this window.</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- RIGHT: Timeline + gaps -->
+    <div class="obs-block">
+      <div style="padding:0.75rem 0.9rem;">
+        <h3 style="margin:0 0 0.25rem; font-size:0.9rem;">
+          Timeline for
+          {% if current_bssid %}
+            <span class="mono">{{ current_bssid }}</span>
+          {% else %}
+            (no AP selected)
+          {% endif %}
+        </h3>
+        {% if current_bssid %}
+          <p style="margin:0; color:var(--muted); font-size:0.75rem;">
+            SSID: {{ current_ssid|default:"&lt;hidden&gt;"|safe }},
+            Device: {{ current_device_name }},
+            Bucket: 1-minute counts of observations
+          </p>
+        {% endif %}
+      </div>
+
+      <div style="padding:0 0.9rem 0.5rem;">
+        <canvas id="apTimelineChart" style="width:100%; max-height:260px;"></canvas>
+      </div>
+
+      <div style="padding:0.5rem 0.9rem 0.9rem;">
+        <h4 style="font-size:0.85rem; margin:0 0 0.25rem;">
+          Gaps &amp; anomaly windows (no detections &gt; {{ gap_threshold_minutes }} min)
+        </h4>
+        <div class="table-wrap">
+          <table class="table-tight">
+            <thead>
+              <tr>
+                <th>Gap start</th>
+                <th>Gap end</th>
+                <th>Duration (min)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% if gaps %}
+                {% for g in gaps %}
+                  <tr>
+                    <td>{{ g.start|date:"M j, Y g:i a" }}</td>
+                    <td>{{ g.end|date:"M j, Y g:i a" }}</td>
+                    <td class="r">{{ g.minutes }}</td>
+                  </tr>
+                {% endfor %}
+              {% else %}
+                <tr><td colspan="3" class="empty">No significant gaps detected.</td></tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  (function() {
+    const labels = {{ chart_labels_json|safe }};
+    const values = {{ chart_values_json|safe }};
+
+    const canvas = document.getElementById('apTimelineChart');
+    if (!canvas || !labels.length) return;
+
+    new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: 'Observations per minute',
+          data: values,
+          fill: false,
+          tension: 0.25
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: {
+            title: { display: true, text: 'Time' },
+            ticks: {
+              maxTicksLimit: 8,
+              callback: function(value, index, ticks) {
+                const raw = this.getLabelForValue(value);
+                return raw.replace('T', ' ').slice(5, 16);
+              }
+            }
+          },
+          y: {
+            beginAtZero: true,
+            title: { display: true, text: '# detections' },
+            ticks: { precision: 0 }
+          }
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title: function(items) {
+                const raw = items[0].label;
+                return raw.replace('T', ' ');
+              }
+            }
+          }
+        }
+      }
+    });
+  })();
+</script>
+{% endblock %}

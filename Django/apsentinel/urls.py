@@ -4,7 +4,7 @@ from django.urls import path
 from django.contrib.auth import views as auth_views
 
 from .views import health, ingest_observation, hashchain_analysis
-from ui.views import dashboard, observations, observation_detail, observations_unwhitelisted, unregistered_aps
+from ui.views import dashboard, observations, observation_detail, observations_unwhitelisted, unregistered_aps, ap_activity
 from devices.views import devices_view, add_device_view, delete_device_view, edit_device_view
 from evidence.views import latest_observation, whitelist_list, whitelist_add, whitelist_edit, whitelist_delete, whitelist_entry_delete, whitelist_add_from_observation
 
@@ -32,6 +32,7 @@ urlpatterns = [
     path("ui/observations/unwhitelisted", observations_unwhitelisted, name="observations_unwhitelisted"),
     path("ui/unregistered-aps", unregistered_aps, name="unregistered_aps"),
     path("ui/unregistered-aps/add/<int:obs_id>", whitelist_add_from_observation, name="unregistered_add_to_whitelist"),
+    path("ui/ap-activity", ap_activity, name="ap_activity"),
 
     # --------------------------------------------------------------
     # Hashchain Verification UI
