@@ -8,8 +8,8 @@
 
   <p style="color:var(--muted); font-size:0.85rem; max-width:60rem; margin-bottom:1rem;">
     Analyse when an access point or device was observed over time. Filter by device / SSID / BSSID
-    and time range, then inspect the timeline, detailed AP properties, and any long gaps
-    (possible downtime or anomaly windows).
+    and time range, then inspect the timeline, detailed AP properties, any long gaps
+    (possible downtime windows), and changes in radio properties.
   </p>
 
   <!-- Filters -->
@@ -80,6 +80,9 @@
             <tr>
               <th>SSID</th>
               <th>BSSID</th>
+              <th>Ch</th>
+              <th>Security</th>
+              <th>Status</th>
               <th>Count</th>
               <th>Last seen</th>
               <th></th>
@@ -91,6 +94,23 @@
                 <tr {% if ap.bssid == current_bssid %}style="background:#0e1422;"{% endif %}>
                   <td>{{ ap.ssid|default:"&lt;hidden&gt;"|safe }}</td>
                   <td class="mono">{{ ap.bssid }}</td>
+                  <td>{{ ap.channel|default:"—" }}</td>
+                  <td>{{ ap.security|default:"—" }}</td>
+                  <td>
+                    {% if ap.dynamic_anomaly %}
+                      <span class="badge badge-down">
+                        {{ ap.dynamic_status|default:"ANOMALY" }}
+                      </span>
+                    {% elif ap.dynamic_status %}
+                      {% if ap.dynamic_status == "WHITELISTED_STRONG" or ap.dynamic_status == "WHITELISTED_WEAK" %}
+                        <span class="badge badge-up">{{ ap.dynamic_status }}</span>
+                      {% else %}
+                        <span class="badge badge-down">{{ ap.dynamic_status }}</span>
+                      {% endif %}
+                    {% else %}
+                      <span class="badge badge-up">OK</span>
+                    {% endif %}
+                  </td>
                   <td class="r">{{ ap.count }}</td>
                   <td>{{ ap.last_ts_max|date:"M j, Y g:i a" }}</td>
                   <td>
@@ -102,7 +122,7 @@
                 </tr>
               {% endfor %}
             {% else %}
-              <tr><td colspan="5" class="empty">No observations in this window.</td></tr>
+              <tr><td colspan="8" class="empty">No observations in this window.</td></tr>
             {% endif %}
           </tbody>
         </table>
@@ -172,6 +192,24 @@
                 <td>{{ current_meta.pmf|default:"—" }}</td>
               </tr>
               <tr>
+                <th>Dynamic status</th>
+                <td colspan="3">
+                  {% if current_meta.dynamic_anomaly %}
+                    <span class="badge badge-down">
+                      {{ current_meta.dynamic_status|default:"ANOMALY" }}
+                    </span>
+                  {% elif current_meta.dynamic_status %}
+                    {% if current_meta.dynamic_status == "WHITELISTED_STRONG" or current_meta.dynamic_status == "WHITELISTED_WEAK" %}
+                      <span class="badge badge-up">{{ current_meta.dynamic_status }}</span>
+                    {% else %}
+                      <span class="badge badge-down">{{ current_meta.dynamic_status }}</span>
+                    {% endif %}
+                  {% else %}
+                    <span class="badge badge-up">OK</span>
+                  {% endif %}
+                </td>
+              </tr>
+              <tr>
                 <th>First seen</th>
                 <td>{{ ap_stats.first_seen|date:"M j, Y g:i a" }}</td>
                 <th>Last seen</th>
@@ -204,6 +242,90 @@
             </tbody>
           </table>
         </div>
+
+        <!-- Property drift (first vs last) -->
+        {% if property_drift %}
+          <div style="padding:0 0.9rem 0.4rem;">
+            <h4 style="font-size:0.85rem; margin:0 0 0.25rem;">
+              Property changes for this BSSID (first vs last in window)
+            </h4>
+            <div class="table-wrap">
+              <table class="table-tight">
+                <thead>
+                  <tr>
+                    <th>Property</th>
+                    <th>First seen</th>
+                    <th>Last seen</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in property_drift %}
+                    <tr>
+                      <td>{{ row.label }}</td>
+                      <td>{{ row.old }}</td>
+                      <td>{{ row.new }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        {% endif %}
+
+        <!-- Same-SSID siblings -->
+        {% if ssid_siblings %}
+          <div style="padding:0 0.9rem 0.4rem;">
+            <h4 style="font-size:0.85rem; margin:0 0 0.25rem;">
+              Other APs with same SSID ({{ current_ssid }}) in this window
+            </h4>
+            <div class="table-wrap">
+              <table class="table-tight">
+                <thead>
+                  <tr>
+                    <th>BSSID</th>
+                    <th>Count</th>
+                    <th>Last seen</th>
+                    <th>Ch</th>
+                    <th>Security</th>
+                    <th>RSN</th>
+                    <th>AKM</th>
+                    <th>PMF</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for s in ssid_siblings %}
+                    <tr>
+                      <td class="mono">{{ s.bssid }}</td>
+                      <td class="r">{{ s.count }}</td>
+                      <td>{{ s.last_seen|date:"M j, Y g:i a" }}</td>
+                      <td>{{ s.channel|default:"—" }}</td>
+                      <td>{{ s.security|default:"—" }}</td>
+                      <td>{{ s.rsn_group|default:"—" }} / {{ s.rsn_pair|default:"—" }}</td>
+                      <td>{{ s.akm|default:"—" }}</td>
+                      <td>{{ s.pmf|default:"—" }}</td>
+                      <td>
+                        {% if s.dynamic_anomaly %}
+                          <span class="badge badge-down">
+                            {{ s.dynamic_status|default:"ANOMALY" }}
+                          </span>
+                        {% elif s.dynamic_status %}
+                          {% if s.dynamic_status == "WHITELISTED_STRONG" or s.dynamic_status == "WHITELISTED_WEAK" %}
+                            <span class="badge badge-up">{{ s.dynamic_status }}</span>
+                          {% else %}
+                            <span class="badge badge-down">{{ s.dynamic_status }}</span>
+                          {% endif %}
+                        {% else %}
+                          <span class="badge badge-up">OK</span>
+                        {% endif %}
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        {% endif %}
       {% endif %}
 
       <div style="padding:0 0.9rem 0.5rem;">
