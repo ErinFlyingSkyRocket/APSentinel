@@ -560,21 +560,19 @@ def unregistered_aps(request):
 @login_required
 def ap_activity(request):
     """
-    Upgraded AP / Device activity analysis view:
-    - Filter by device, SSID, BSSID, explicit from/to datetimes OR lookback
-    - Left table shows richer AP metadata (channel, security, device count)
-    - Right panel shows detailed AP metadata + RSSI stats
-    - Timeline chart (1-minute buckets)
-    - Gap detection > 30 minutes
+    Time / anomaly analysis view:
+
+    - Filter by device, SSID, BSSID, and time range (or lookback hours).
+    - Show left-side table of *all* APs (whitelisted + non-whitelisted)
+      seen in that window, with dynamic whitelist status.
+    - Show timeline chart + gap analysis for a selected BSSID.
     """
-    # -------------------------
-    # 1) Parse filters
-    # -------------------------
+
     device_id = request.GET.get("device") or ""
     ssid = (request.GET.get("ssid") or "").strip()
     bssid = (request.GET.get("bssid") or "").strip()
 
-    # default lookback if explicit range not chosen
+    # default lookback hours if no explicit time range given
     try:
         hours_default = int(request.GET.get("hours", "12"))
     except ValueError:
@@ -582,7 +580,10 @@ def ap_activity(request):
 
     now = timezone.now()
 
-    # parse datetime-local (YYYY-MM-DDTHH:MM)
+    since_str = request.GET.get("since") or ""
+    until_str = request.GET.get("until") or ""
+
+    # parse HTML datetime-local (YYYY-MM-DDTHH:MM) if given
     def parse_dt(val, fallback):
         if not val:
             return fallback
@@ -592,19 +593,16 @@ def ap_activity(request):
         except Exception:
             return fallback
 
-    since_str = request.GET.get("since") or ""
-    until_str = request.GET.get("until") or ""
-
     since = parse_dt(since_str, now - timedelta(hours=hours_default))
     until = parse_dt(until_str, now)
 
-    # -------------------------
-    # 2) Base queryset inside window
-    # -------------------------
+    # ------------------------------------------------------------------
+    # Base queryset: ALL observations in time window (no whitelist filter)
+    # ------------------------------------------------------------------
     qs = AccessPointObservation.objects.filter(
         server_ts__gte=since,
         server_ts__lte=until,
-    )
+    ).select_related("device")
 
     if device_id:
         qs = qs.filter(device_id=device_id)
@@ -613,50 +611,86 @@ def ap_activity(request):
     if bssid:
         qs = qs.filter(bssid__iexact=bssid)
 
-    # -------------------------
-    # 3) LEFT TABLE — APs in window with richer metadata
-    # -------------------------
-    ap_list = (
+    # ------------------------------------------------------------------
+    # Left-side table: APs in selected window (all APs, not just anomalies)
+    # ------------------------------------------------------------------
+    grouped = (
         qs.values("ssid", "bssid")
         .annotate(
             count=Count("id"),
-            last_seen=Max("server_ts"),
-            device_count=Count("device_id", distinct=True),
-            channel=Max("channel"),
-            security=Max("security"),
+            last_ts_max=Max("server_ts"),
         )
-        .order_by("-last_seen")[:200]
+        .order_by("-count")[:200]
     )
 
-    # Determine which AP to focus
-    current_bssid = bssid if bssid else (ap_list[0]["bssid"] if ap_list else "")
+    ap_list = []
+    for row in grouped:
+        g_ssid = row["ssid"]
+        g_bssid = row["bssid"]
 
-    # Prepare right-panel defaults
+        # representative latest observation for this SSID+BSSID in window
+        rep = (
+            qs.filter(ssid=g_ssid, bssid=g_bssid)
+            .order_by("-server_ts")
+            .first()
+        )
+
+        dynamic_status = None
+        dynamic_anomaly = False
+        channel = ""
+        security = ""
+        device_name = ""
+
+        if rep:
+            _attach_dynamic_status(rep)
+            dynamic_status = getattr(rep, "dynamic_status", None)
+            dynamic_anomaly = getattr(rep, "dynamic_anomaly", False)
+            channel = getattr(rep, "channel", "")
+            security = getattr(rep, "security", "") or ""
+            device_name = rep.device.name if rep.device else ""
+
+        ap_list.append(
+            {
+                "ssid": g_ssid or "<hidden>",
+                "bssid": g_bssid or "",
+                "count": row["count"],
+                "last_ts_max": row["last_ts_max"],
+                "dynamic_status": dynamic_status,
+                "dynamic_anomaly": dynamic_anomaly,
+                "channel": channel,
+                "security": security,
+                "device_name": device_name,
+            }
+        )
+
+    # ------------------------------------------------------------------
+    # Pick one AP for the timeline chart
+    # ------------------------------------------------------------------
+    current_bssid = bssid
+    if not current_bssid and ap_list:
+        current_bssid = ap_list[0]["bssid"]
+
     chart_labels = []
     chart_values = []
     gaps = []
-    ap_stats = None
-    current_meta = {}
-    device_count = 0
     current_ssid = ""
     current_device_name = ""
+    ap_stats = None
+    device_count = 0
+    current_meta = {}
     gap_threshold = timedelta(minutes=30)
 
-    # -------------------------
-    # 4) RIGHT PANEL — timeline, stats, metadata
-    # -------------------------
     if current_bssid:
         ap_qs = qs.filter(bssid=current_bssid).order_by("server_ts")
 
         first_obs = ap_qs.first()
         last_obs = ap_qs.last()
 
-        # Basic identifiers
         if first_obs:
             current_ssid = first_obs.ssid or "<hidden>"
             current_device_name = first_obs.device.name if first_obs.device else "—"
 
-        # 1-minute bucketed counts
+        # 1-minute buckets for the chart
         bucketed = (
             ap_qs.annotate(bucket=TruncMinute("server_ts"))
             .values("bucket")
@@ -667,21 +701,23 @@ def ap_activity(request):
         chart_labels = [row["bucket"].isoformat() for row in bucketed]
         chart_values = [row["count"] for row in bucketed]
 
-        # Detect gaps > threshold
+        # gap detection (> 30 minutes between detections)
         timestamps = list(ap_qs.values_list("server_ts", flat=True))
         prev_ts = None
         for ts in timestamps:
-            if prev_ts:
+            if prev_ts is not None:
                 delta = ts - prev_ts
                 if delta > gap_threshold:
-                    gaps.append({
-                        "start": prev_ts,
-                        "end": ts,
-                        "minutes": int(delta.total_seconds() // 60),
-                    })
+                    gaps.append(
+                        {
+                            "start": prev_ts,
+                            "end": ts,
+                            "minutes": int(delta.total_seconds() // 60),
+                        }
+                    )
             prev_ts = ts
 
-        # RSSI / count stats
+        # aggregate stats for this AP
         ap_stats = ap_qs.aggregate(
             first_seen=Min("server_ts"),
             last_seen=Max("server_ts"),
@@ -690,12 +726,10 @@ def ap_activity(request):
             max_rssi=Max("rssi_current"),
             avg_rssi=Avg("rssi_current"),
         )
-
-        # Unique devices
         device_count = ap_qs.values("device_id").distinct().count()
 
-        # Metadata: always use the newest observation
         if last_obs:
+            _attach_dynamic_status(last_obs)  # decorate with latest status too
             current_meta = {
                 "ssid": last_obs.ssid or "<hidden>",
                 "bssid": last_obs.bssid or "",
@@ -706,11 +740,10 @@ def ap_activity(request):
                 "rsn_pair": getattr(last_obs, "rsn_pair", "") or "",
                 "akm": getattr(last_obs, "akm", "") or "",
                 "pmf": getattr(last_obs, "pmf", "") or "",
+                "dynamic_status": getattr(last_obs, "dynamic_status", None),
+                "dynamic_anomaly": getattr(last_obs, "dynamic_anomaly", False),
             }
 
-    # -------------------------
-    # 5) Build context + render
-    # -------------------------
     devices = Device.objects.all().order_by("name")
 
     context = {
@@ -721,18 +754,14 @@ def ap_activity(request):
         "since": since,
         "until": until,
         "hours_default": hours_default,
-
         "ap_list": ap_list,
         "current_bssid": current_bssid,
         "current_ssid": current_ssid,
         "current_device_name": current_device_name,
-
         "chart_labels_json": json.dumps(chart_labels, cls=DjangoJSONEncoder),
         "chart_values_json": json.dumps(chart_values, cls=DjangoJSONEncoder),
-
         "gaps": gaps,
         "gap_threshold_minutes": int(gap_threshold.total_seconds() // 60),
-
         "ap_stats": ap_stats,
         "device_count": device_count,
         "current_meta": current_meta,
