@@ -560,13 +560,14 @@ def unregistered_aps(request):
 @login_required
 def ap_activity(request):
     """
-    Time / anomaly analysis view.
+    Time / anomaly analysis view:
 
-    - Left table: all UNIQUE UNREGISTERED_APs (dynamic whitelist),
-      same logic as `unregistered_aps` page (latest row per SSID/BSSID),
-      optionally filtered by device and/or SSID.
-    - Timeline / gaps: still respect the selected time window (since/until or
-      fallback lookback hours) for the selected BSSID.
+    - Filter by device, SSID, BSSID, and time range (or lookback hours).
+    - Show left-side table of *all* APs (whitelisted + non-whitelisted)
+      seen in that window.
+    - For a focused BSSID, show timeline + gaps + meta.
+    - Show property drift (first vs last obs for that BSSID).
+    - Show other APs using the same SSID in this window (possible evil twins).
     """
 
     device_id = request.GET.get("device") or ""
@@ -598,54 +599,14 @@ def ap_activity(request):
     until = parse_dt(until_str, now)
 
     # ------------------------------------------------------------------
-    # A) LEFT TABLE: UNIQUE UNREGISTERED_APs (dynamic, all time)
-    #    - same semantics as unregistered_aps()
-    # ------------------------------------------------------------------
-    base_list_qs = (
-        AccessPointObservation.objects
-        .select_related("device")
-        .order_by("-server_ts")
-    )
-
-    if device_id:
-        base_list_qs = base_list_qs.filter(device_id=device_id)
-    if ssid:
-        base_list_qs = base_list_qs.filter(ssid__iexact=ssid)
-
-    latest_by_key = {}  # (ssid, bssid) -> observation
-
-    for o in base_list_qs:
-        _attach_dynamic_status(o)
-
-        # only UNREGISTERED_APs based on *current* whitelist
-        if o.dynamic_status != "UNREGISTERED_AP":
-            continue
-
-        key = (o.ssid or "", o.bssid or "")
-        if key not in latest_by_key:
-            latest_by_key[key] = o  # newest first because of -server_ts
-
-    # build list for template
-    ap_list = []
-    for o in latest_by_key.values():
-        ap_list.append(
-            {
-                "ssid": o.ssid or "<hidden>",
-                "bssid": o.bssid or "",
-                "count": 1,  # we don't re-count here; this is "unique AP"
-                "last_ts_max": o.server_ts,
-            }
-        )
-
-    # sort newest first (should already be, but be explicit)
-    ap_list.sort(key=lambda x: x["last_ts_max"] or now, reverse=True)
-
-    # ------------------------------------------------------------------
-    # B) TIMELINE / GAP ANALYSIS: use selected time window for selected BSSID
+    # Base queryset: ALL observations in time window (no whitelist filter)
     # ------------------------------------------------------------------
     qs_window = (
         AccessPointObservation.objects
-        .filter(server_ts__gte=since, server_ts__lte=until)
+        .filter(
+            server_ts__gte=since,
+            server_ts__lte=until,
+        )
         .select_related("device")
     )
 
@@ -653,8 +614,64 @@ def ap_activity(request):
         qs_window = qs_window.filter(device_id=device_id)
     if ssid:
         qs_window = qs_window.filter(ssid__iexact=ssid)
+    if bssid:
+        qs_window = qs_window.filter(bssid__iexact=bssid)
 
-    # pick one AP for the timeline chart
+    # ------------------------------------------------------------------
+    # Left-side table: APs in selected window (all APs)
+    # ------------------------------------------------------------------
+    grouped = (
+        qs_window.values("ssid", "bssid")
+        .annotate(
+            count=Count("id"),
+            last_ts_max=Max("server_ts"),
+        )
+        .order_by("-count")[:200]
+    )
+
+    ap_list = []
+    for row in grouped:
+        g_ssid = row["ssid"]
+        g_bssid = row["bssid"]
+
+        # representative latest observation for this SSID+BSSID in window
+        rep = (
+            qs_window.filter(ssid=g_ssid, bssid=g_bssid)
+            .order_by("-server_ts")
+            .first()
+        )
+
+        channel = ""
+        security = ""
+        device_name = ""
+        dynamic_status = None
+        dynamic_anomaly = False
+
+        if rep:
+            _attach_dynamic_status(rep)
+            dynamic_status = getattr(rep, "dynamic_status", None)
+            dynamic_anomaly = getattr(rep, "dynamic_anomaly", False)
+            channel = getattr(rep, "channel", "")
+            security = getattr(rep, "security", "") or ""
+            device_name = rep.device.name if rep.device else ""
+
+        ap_list.append(
+            {
+                "ssid": g_ssid or "<hidden>",
+                "bssid": g_bssid or "",
+                "count": row["count"],
+                "last_ts_max": row["last_ts_max"],
+                "channel": channel,
+                "security": security,
+                "device_name": device_name,
+                "dynamic_status": dynamic_status,
+                "dynamic_anomaly": dynamic_anomaly,
+            }
+        )
+
+    # ------------------------------------------------------------------
+    # Pick one AP for the timeline chart + details
+    # ------------------------------------------------------------------
     current_bssid = bssid
     if not current_bssid and ap_list:
         current_bssid = ap_list[0]["bssid"]
@@ -667,6 +684,8 @@ def ap_activity(request):
     ap_stats = None
     device_count = 0
     current_meta = {}
+    property_drift = []
+    ssid_siblings = []
     gap_threshold = timedelta(minutes=30)
 
     if current_bssid:
@@ -706,35 +725,116 @@ def ap_activity(request):
                     )
             prev_ts = ts
 
-        # aggregate stats for this AP (within the chosen window)
-        if timestamps:
-            ap_stats = ap_qs.aggregate(
-                first_seen=Min("server_ts"),
-                last_seen=Max("server_ts"),
-                count=Count("id"),
-                min_rssi=Min("rssi_current"),
-                max_rssi=Max("rssi_current"),
-                avg_rssi=Avg("rssi_current"),
-            )
-            device_count = ap_qs.values("device_id").distinct().count()
+        # aggregate stats for this AP
+        ap_stats = ap_qs.aggregate(
+            first_seen=Min("server_ts"),
+            last_seen=Max("server_ts"),
+            count=Count("id"),
+            min_rssi=Min("rssi_current"),
+            max_rssi=Max("rssi_current"),
+            avg_rssi=Avg("rssi_current"),
+        )
+        device_count = ap_qs.values("device_id").distinct().count()
 
-        # use latest observation (in window) for metadata
-        if last_obs:
-            _attach_dynamic_status(last_obs)
+        # ---------------------------------------------
+        # Meta + dynamic status for focused AP (last)
+        # ---------------------------------------------
+        ref = last_obs or first_obs
+        if ref:
+            _attach_dynamic_status(ref)
+
+            ref_ssid = ref.ssid or ""
+            ref_channel = getattr(ref, "channel", None)
+            ref_security = getattr(ref, "security", "") or ""
+            ref_oui = getattr(ref, "oui", "") or ""
+            ref_rsn_group = getattr(ref, "rsn_group", "") or ""
+            ref_rsn_pair = getattr(ref, "rsn_pair", "") or ""
+            ref_akm = getattr(ref, "akm", "") or ""
+            ref_pmf = getattr(ref, "pmf", "") or ""
+
             current_meta = {
-                "ssid": last_obs.ssid or "<hidden>",
-                "bssid": last_obs.bssid or "",
-                "oui": getattr(last_obs, "oui", "") or "",
-                "channel": getattr(last_obs, "channel", ""),
-                "security": getattr(last_obs, "security", "") or "",
-                "rsn_group": getattr(last_obs, "rsn_group", "") or "",
-                "rsn_pair": getattr(last_obs, "rsn_pair", "") or "",
-                "akm": getattr(last_obs, "akm", "") or "",
-                "pmf": getattr(last_obs, "pmf", "") or "",
-                # we still compute them but don't have to display:
-                "dynamic_status": getattr(last_obs, "dynamic_status", None),
-                "dynamic_anomaly": getattr(last_obs, "dynamic_anomaly", False),
+                "ssid": ref.ssid or "<hidden>",
+                "bssid": ref.bssid or "",
+                "oui": ref_oui,
+                "channel": ref_channel,
+                "security": ref_security,
+                "rsn_group": ref_rsn_group,
+                "rsn_pair": ref_rsn_pair,
+                "akm": ref_akm,
+                "pmf": ref_pmf,
+                "dynamic_status": getattr(ref, "dynamic_status", None),
+                "dynamic_anomaly": getattr(ref, "dynamic_anomaly", False),
             }
+
+            # ---------------------------------------------
+            # Property drift (first vs last for this BSSID)
+            # ---------------------------------------------
+            def fmt(v):
+                return v if v not in (None, "") else "—"
+
+            def add_diff(label, old, new):
+                if old != new:
+                    property_drift.append(
+                        {"label": label, "old": fmt(old), "new": fmt(new)}
+                    )
+
+            if first_obs and last_obs and first_obs.id != last_obs.id:
+                add_diff("Channel", getattr(first_obs, "channel", None), ref_channel)
+                add_diff("Security", getattr(first_obs, "security", ""), ref_security)
+                add_diff("OUI", getattr(first_obs, "oui", ""), ref_oui)
+                add_diff("RSN group", getattr(first_obs, "rsn_group", ""), ref_rsn_group)
+                add_diff("RSN pair", getattr(first_obs, "rsn_pair", ""), ref_rsn_pair)
+                add_diff("AKM", getattr(first_obs, "akm", ""), ref_akm)
+                add_diff("PMF", getattr(first_obs, "pmf", ""), ref_pmf)
+
+            # ----------------------------------------------------------
+            # Other BSSIDs using the *same SSID* in this window
+            # (evil-twin style view)
+            # ----------------------------------------------------------
+            if ref_ssid:
+                siblings_base = (
+                    qs_window
+                    .filter(ssid=ref_ssid)
+                    .exclude(bssid=current_bssid)
+                )
+
+                siblings_grouped = (
+                    siblings_base.values("bssid")
+                    .annotate(
+                        count=Count("id"),
+                        last_seen=Max("server_ts"),
+                    )
+                    .order_by("-last_seen")
+                )
+
+                for row in siblings_grouped:
+                    sib_bssid = row["bssid"]
+                    rep = (
+                        siblings_base
+                        .filter(bssid=sib_bssid)
+                        .order_by("-server_ts")
+                        .first()
+                    )
+                    if not rep:
+                        continue
+
+                    _attach_dynamic_status(rep)
+
+                    ssid_siblings.append(
+                        {
+                            "bssid": sib_bssid or "",
+                            "count": row["count"],
+                            "last_seen": row["last_seen"],
+                            "channel": getattr(rep, "channel", None),
+                            "security": getattr(rep, "security", "") or "",
+                            "rsn_group": getattr(rep, "rsn_group", "") or "",
+                            "rsn_pair": getattr(rep, "rsn_pair", "") or "",
+                            "akm": getattr(rep, "akm", "") or "",
+                            "pmf": getattr(rep, "pmf", "") or "",
+                            "dynamic_status": getattr(rep, "dynamic_status", None),
+                            "dynamic_anomaly": getattr(rep, "dynamic_anomaly", False),
+                        }
+                    )
 
     devices = Device.objects.all().order_by("name")
 
@@ -757,6 +857,8 @@ def ap_activity(request):
         "ap_stats": ap_stats,
         "device_count": device_count,
         "current_meta": current_meta,
+        "property_drift": property_drift,
+        "ssid_siblings": ssid_siblings,
     }
 
     return render(request, "ui/ap_activity.html", context)
