@@ -77,7 +77,7 @@ sudo apt update && sudo apt install -y python3 python3-venv git
 
 ```bash
 git clone https://github.com/ErinFlyingSkyRocket/APSentinel.git
-cd Apsentinel
+cd APSentinel
 ```
 
 ### Step 3 — Setup Python environment
@@ -104,46 +104,67 @@ python manage.py runserver 0.0.0.0:8000
 ```
 
 > **Note:**
-> In AWS → EC2 → Security Groups, add an inbound rule for **TCP 8000** (source 0.0.0.0/0).
+> In AWS → EC2 → Security Groups, add an inbound rule for **TCP 8000** (source `0.0.0.0/0` or your own IP range).
 
 Access from browser or ESP32:
 
-```
+```text
 http://<your-ec2-ip>:8000
 ```
 
 ---
 
-## 🔄 3.1 Updating to the Latest Version (Git Pull)
+## 🔄 3.1 Updating to the Latest Version (Git Pull on EC2)
 
-Keep your AWS instance synchronized with the latest GitHub code.
+When you push new commits to GitHub, update your EC2 instance with:
 
-### Step 1 — Navigate to your project
+### Step 1 — Go to project directory
 
 ```bash
 cd ~/APSentinel
 ```
 
-### Step 2 — Pull latest code safely
+### Step 2 — See your current branch and status (optional but helpful)
 
 ```bash
-git fetch origin && git checkout main && git pull origin main
+git status
+git branch
 ```
 
-If you want a **clean reset** (discarding local edits):
+### Step 3 — Pull latest code from `origin/main` (safe, keeps local changes)
 
 ```bash
-git fetch origin && git reset --hard origin/main
+git fetch origin
+git checkout main
+git pull origin main
 ```
 
-### Step 3 — Restart Django
+### Step 4 — Force reset to GitHub version (discard local changes)
+
+If you want the EC2 copy to **exactly match GitHub**, ignoring all local edits:
+
+```bash
+git fetch origin
+git checkout main
+git reset --hard origin/main
+```
+
+> 💡 Use this when you accidentally broke something on EC2 and just want to “go back to whatever is on GitHub”.
+
+### Step 5 — Apply migrations again (if models changed)
 
 ```bash
 source .venv/bin/activate
+python manage.py migrate
+```
+
+### Step 6 — Restart Django dev server
+
+```bash
 python manage.py runserver 0.0.0.0:8000
 ```
 
-> 🟢 **Tip:** Run this before every deployment to ensure you have the newest features and fixes.
+(If you later switch to `gunicorn`/`systemd`, this step would become `sudo systemctl restart apsentinel` or similar.)
 
 ---
 
@@ -191,28 +212,33 @@ No Certbot or nginx required.
 ## 🧠 5. ESP32 → Apsentinel Data Flow
 
 1. ESP32 scans nearby Wi-Fi APs.
+
 2. Builds canonical entries (SSID/BSSID/RSSI/etc.).
+
 3. Each record is hashed (SHA-256) and signed (ECDSA P-256).
+
 4. The device sends JSON to:
 
-   ```
+   ```text
    http://<ec2-ip>:8000/api/ingest/esp32/
    ```
 
    or, if using HTTPS PEM:
 
-   ```
+   ```text
    https://<ec2-ip>:8443/api/ingest/esp32/
    ```
+
 5. Django verifies signature, device key, and chain integrity.
+
 6. Valid data is appended as a tamper-evident observation.
 
 ---
 
 ## 📦 6. Project Structure
 
-```
-Apsentinel/
+```text
+APSentinel/
 │
 ├── devices/                 # Device registration & management
 ├── evidence/                # Ingestion, whitelist, evidence chain
@@ -228,7 +254,7 @@ Apsentinel/
 
 All pages share one stylesheet:
 
-```
+```text
 templates/css/style.css
 ```
 
@@ -238,8 +264,9 @@ Update it once and all pages inherit the dark UI.
 
 ## ✅ 8. Quick Reference
 
-| Environment       | Command                                                                                     | URL                                            |
-| ----------------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------- |
-| Local             | `python manage.py runserver`                                                                | [http://127.0.0.1:8000](http://127.0.0.1:8000) |
-| AWS EC2           | `python manage.py runserver 0.0.0.0:8000`                                                   | `http://<EC2-IP>:8000`                         |
-| Self-signed HTTPS | `python manage.py runserver_plus --cert-file server.crt --key-file server.key 0.0.0.0:8443` | `https://<EC2-IP>:8443`                        |
+| Environment       | Command                                                                                     | URL                     |
+| ----------------- | ------------------------------------------------------------------------------------------- | ----------------------- |
+| Local             | `python manage.py runserver`                                                                | `http://127.0.0.1:8000` |
+| AWS EC2           | `python manage.py runserver 0.0.0.0:8000`                                                   | `http://<EC2-IP>:8000`  |
+| Self-signed HTTPS | `python manage.py runserver_plus --cert-file server.crt --key-file server.key 0.0.0.0:8443` | `https://<EC2-IP>:8443` |
+

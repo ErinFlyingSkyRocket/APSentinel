@@ -6,6 +6,8 @@ from django.utils import timezone
 from django.db.models import Q
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.views.decorators.csrf import csrf_exempt
+from django.contrib.auth.decorators import login_required
+
 
 from .models import (
     AccessPointObservation,
@@ -153,3 +155,98 @@ def whitelist_entry_delete(request, pk):
     group_id = entry.group_id
     entry.delete()
     return redirect("whitelist_edit", pk=group_id)
+
+@login_required
+def whitelist_add_from_observation(request, obs_id):
+    """
+    Shortcut: take one UNREGISTERED_AP observation and
+    turn it into a whitelist entry.
+
+    Behaviour:
+      - Find (or create) a whitelist group for this SSID.
+      - Add/activate a whitelist entry for this BSSID with
+        the current security / RSN / AKM / OUI / band info.
+      - Redirect to whitelist_edit so the user can fine-tune.
+    """
+    if request.method != "POST":
+        # Only allow via POST (button form)
+        return redirect("unregistered_aps")
+
+    obs = get_object_or_404(AccessPointObservation, pk=obs_id)
+
+    ssid = (obs.ssid or "").strip()
+    if not ssid:
+        # Hidden SSIDs are awkward to manage as groups; just bail out to the list.
+        return redirect("unregistered_aps")
+
+    # ------------------------------------------------------------------
+    # 1) Find or create a group for this SSID
+    # ------------------------------------------------------------------
+    group = (
+        AccessPointWhitelistGroup.objects
+        .filter(ssid=ssid, is_active=True)
+        .order_by("id")
+        .first()
+    )
+
+    if not group:
+        # First time we see this SSID: create an "auto" group
+        group_name = f"Auto: {ssid}"
+        group = AccessPointWhitelistGroup.objects.create(
+            name=group_name[:128],
+            ssid=ssid,
+            location="",
+            default_security=obs.security or "",
+            strict=True,   # you can flip this to False if you prefer non-strict defaults
+            is_active=True,
+        )
+
+    # ------------------------------------------------------------------
+    # 2) Create / update entry for this specific BSSID under that group
+    # ------------------------------------------------------------------
+    vendor_oui = (obs.oui or "").upper() if obs.oui else None
+
+    entry, created = AccessPointWhitelistEntry.objects.get_or_create(
+        group=group,
+        bssid=obs.bssid,
+        defaults={
+            "security": obs.security or group.default_security,
+            "channel": obs.channel,
+            "band": obs.band,
+            "vendor_oui": vendor_oui,
+            "rsn_text": obs.rsn_text or None,
+            "akm_list": obs.akm_list or None,
+            "pmf_capable": bool(obs.pmf_capable),
+            "pmf_required": bool(obs.pmf_required),
+            "is_active": True,
+        },
+    )
+
+    if not created:
+        # If an entry already exists for this BSSID, we:
+        # - ensure it's active
+        # - only fill blanks with fresh data (don't silently override existing choices)
+        changed = False
+
+        if not entry.is_active:
+            entry.is_active = True
+            changed = True
+
+        field_updates = [
+            ("security", obs.security or group.default_security),
+            ("channel", obs.channel),
+            ("band", obs.band),
+            ("vendor_oui", vendor_oui),
+            ("rsn_text", obs.rsn_text),
+            ("akm_list", obs.akm_list),
+        ]
+        for field, value in field_updates:
+            if value not in (None, "", 0) and getattr(entry, field) in (None, "", 0):
+                setattr(entry, field, value)
+                changed = True
+
+        if changed:
+            entry.save()
+
+    # After adding, jump straight to the group editor so user can refine.
+    return redirect("whitelist_edit", pk=group.pk)

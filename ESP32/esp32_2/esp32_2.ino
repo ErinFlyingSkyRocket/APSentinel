@@ -60,18 +60,14 @@ void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
 }
 
 // ---------- YOUR SETTINGS ----------
-
 // WiFi credentials (placeholder)
 #define WIFI_SSID   "YOUR_WIFI_SSID"
 #define WIFI_PASS   "YOUR_WIFI_PASSWORD"
-
 // Logical device name – MUST match Device.name in Django
 #define DEVICE_NAME "YOUR_DEVICE_NAME"
-
 // Server (Django) endpoint
 #define SERVER_HOST "http://YOUR_SERVER_IP_OR_DOMAIN:8000"   // HTTP or HTTPS
 #define SERVER_PATH "/api/ingest/esp32/"                     // Django ingest endpoint
-
 // ECDSA P-256 PRIVATE KEY (paste the private key generated from Django Add Device page)
 // ⚠️ DO NOT commit your real private key to GitHub.
 // Keep this placeholder in public repos.
@@ -80,7 +76,6 @@ static const char *DEVICE_PRIVKEY_PEM = R"KEY(
 YOUR_PRIVATE_KEY_CONTENT_HERE
 -----END PRIVATE KEY-----
 )KEY";
-
 // Root CA PEM – only needed if you switch SERVER_HOST to https://
 // Safe placeholder for GitHub repo
 static const char *ROOT_CA_PEM = R"PEM(
@@ -89,7 +84,6 @@ YOUR_CA_CERTIFICATE_HERE_IF_USING_HTTPS
 -----END CERTIFICATE-----
 )PEM";
 // -----------------------------------
-
 
 // --- auto-stop after 30s ---
 const uint32_t STOP_AFTER_MS = 30 * 1000UL;

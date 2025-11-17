@@ -44,6 +44,7 @@
             <th>Ch</th>
             <th>Security</th>
             <th>Last Seen</th>
+            <th>Whitelist</th>
             <th></th>
           </tr>
         </thead>
@@ -63,12 +64,24 @@
                 <td>{{ o.channel }}</td>
                 <td>{{ o.security|default:"—" }}</td>
                 <td>{{ o.server_ts|date:"M j, Y, g:i a" }}</td>
-                <td><a href="{% url 'observation_detail' o.id %}" class="btn-link">Details</a></td>
+
+                <!-- Add to whitelist button -->
+                <td>
+                  <form method="post" action="{% url 'unregistered_add_to_whitelist' o.id %}">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-small">Add</button>
+                  </form>
+                </td>
+
+                <!-- Details link -->
+                <td>
+                  <a href="{% url 'observation_detail' o.id %}" class="btn-link">Details</a>
+                </td>
               </tr>
             {% endfor %}
           {% else %}
             <tr>
-              <td colspan="7" class="empty">No unregistered APs found.</td>
+              <td colspan="8" class="empty">No unregistered APs found.</td>
             </tr>
           {% endif %}
         </tbody>
