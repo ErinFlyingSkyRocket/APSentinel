@@ -64,7 +64,7 @@ nav .spacer {
    ====================================================== */
 main {
   padding: 16px;
-  max-width: 1100px;
+  max-width: 1500px;   /* was 1100px */
   margin: 0 auto;
 }
 
@@ -668,13 +668,16 @@ select {
   }
 }
 
+/* ======================================================
+   Dashboard row (alerts + unwhitelisted APs)
+   ====================================================== */
 .dash-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: 0.8fr 1.2fr;  /* left smaller, right bigger */
   gap: 14px;
-  flex-wrap: wrap;
   align-items: flex-start;
 }
+
 .dash-row .obs-block {
-  flex: 1 1 360px;
-  min-width: 320px;
+  margin-top: 0;
 }
