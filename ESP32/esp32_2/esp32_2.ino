@@ -60,6 +60,7 @@ void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
 }
 
 // ---------- YOUR SETTINGS ----------
+// ---------- YOUR SETTINGS ----------
 // WiFi credentials (placeholder)
 #define WIFI_SSID   "YOUR_WIFI_SSID"
 #define WIFI_PASS   "YOUR_WIFI_PASSWORD"
@@ -814,6 +815,67 @@ bool uploadJsonHTTPS(const String& payload) {
   }
 }
 
+void startSnifferCycle() {
+  Serial.println("\n[Sniffer] === New 30s capture window ===");
+
+  // Clear AP table so each upload is a fresh 30s snapshot
+  for (int i = 0; i < MAX_APS; i++) {
+    table[i].inUse      = false;
+    table[i].ssid       = "";
+    table[i].bssid      = "";
+    table[i].oui        = "";
+    table[i].rssiCur    = 0;
+    table[i].rssiBest   = -127;
+    table[i].ch         = 0;
+    table[i].beacons    = 0;
+    table[i].lastSeenMs = 0;
+    table[i].sec        = "";
+    table[i].rsn        = "";
+    table[i].akm        = "";
+    table[i].pmfCap     = false;
+    table[i].pmfReq     = false;
+  }
+
+  newData      = false;
+  sniffStopped = false;
+  sendPending  = false;
+  uploadDone   = false;
+  lastPrint    = 0;
+
+  esp_wifi_set_promiscuous(false);
+  delay(50);
+
+  // fully stop Wi-Fi driver
+  WiFi.mode(WIFI_MODE_NULL);
+  delay(100);
+
+  // Reset Wi-Fi back into clean STA + promiscuous sniffer
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect(true, true);
+  delay(200);
+
+  // country / channels
+  set_country_1_13();
+
+  // start promiscuous mode again
+  esp_wifi_set_promiscuous_rx_cb(&cb);
+  wifi_promiscuous_filter_t f{};
+  f.filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT;
+  esp_wifi_set_promiscuous_filter(&f);
+  esp_wifi_set_promiscuous(true);
+
+  if (FIXED_CH) {
+    esp_wifi_set_channel(FIXED_CH, WIFI_SECOND_CHAN_NONE);
+    Serial.printf("Listening on fixed channel %d\n", FIXED_CH);
+  } else {
+    uint8_t initial_ch = (CHANNEL_LIST_LEN > 0) ? CHANNEL_LIST[0] : 1;
+    esp_wifi_set_channel(initial_ch, WIFI_SECOND_CHAN_NONE);
+    Serial.printf("Hopper mode, initial channel %u\n", initial_ch);
+  }
+
+  startMs = millis();
+}
+
 // ---------- SETUP / LOOP ----------
 void setup() {
   Serial.begin(115200);
@@ -833,31 +895,7 @@ void setup() {
     Serial.println("[Crypto] Key init OK (using hardcoded private key).");
   }
 
-  // Let Arduino own Wi-Fi from the start
-  WiFi.mode(WIFI_STA);
-  WiFi.disconnect(true, true);
-  delay(200);
-
-  // set country/channels
-  set_country_1_13();
-
-  // start promiscuous mode
-  esp_wifi_set_promiscuous_rx_cb(&cb);
-  wifi_promiscuous_filter_t f{};
-  f.filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT;
-  esp_wifi_set_promiscuous_filter(&f);
-  esp_wifi_set_promiscuous(true);
-
-  if (FIXED_CH) {
-    esp_wifi_set_channel(FIXED_CH, WIFI_SECOND_CHAN_NONE);
-    Serial.printf("Listening on fixed channel %d\n", FIXED_CH);
-  } else {
-    uint8_t initial_ch = (CHANNEL_LIST_LEN>0) ? CHANNEL_LIST[0] : 1;
-    esp_wifi_set_channel(initial_ch, WIFI_SECOND_CHAN_NONE);
-    Serial.printf("Hopper mode, initial channel %u\n", initial_ch);
-  }
-
-  startMs = millis();
+  startSnifferCycle();
 }
 
 void tryUploadIfNeeded() {
@@ -874,9 +912,11 @@ void tryUploadIfNeeded() {
     uploadDone = true;
     sendPending = false;
   } else {
-    Serial.println("[Upload] FAILED. Press BOOT to retry.");
+    Serial.println("[Upload] FAILED. (will keep scanning and retry next cycle).");
     sendPending = true;
   }
+
+  startSnifferCycle();
 }
 
 void loop() {
@@ -888,20 +928,6 @@ void loop() {
     printTable();
     Serial.println("\n[Sniffer] Stopped after 30s. Building JSON and uploading...");
     tryUploadIfNeeded();
-  }
-
-  // If stopped, allow retry via BOOT button
-  if (sniffStopped) {
-    if (sendPending && digitalRead(BOOT_BTN) == LOW) {
-      delay(15); // debounce
-      if (digitalRead(BOOT_BTN) == LOW) {
-        Serial.println("[Retry] BOOT pressed. Retrying upload...");
-        tryUploadIfNeeded();
-        while (digitalRead(BOOT_BTN) == LOW) delay(10);  // wait until release
-      }
-    }
-    delay(200);
-    return;
   }
 
   // while sniffing
