@@ -74,7 +74,9 @@
           {{ since|date:"M j, Y g:i a" }} – {{ until|date:"M j, Y g:i a" }} (server time)
         </p>
       </div>
-      <div class="table-wrap">
+
+      <!-- SCROLLABLE list of APs (approx ~30 rows visible, then scroll) -->
+      <div class="table-wrap" style="max-height:520px; overflow-y:auto;">
         <table class="table-tight">
           <thead>
             <tr>
