@@ -369,6 +369,7 @@ def ingest_observation(request):
     For each observation we:
       - require device (by name) to exist and be active
       - require device.pubkey_pem to be configured
+      - require correct ESP32 Wi-Fi MAC as second factor (bound on first contact)
       - verify ECDSA P-256 signature
       - compute hash chain (prev_chain_hash + payload_hash + server_ts)
       - snapshot whitelist status via _match_whitelist
@@ -409,6 +410,55 @@ def ingest_observation(request):
             device_mac,
         )
         return HttpResponseForbidden("Device not allowed")
+
+    # --------------------------------------------------------------
+    # 2FA: ESP32 Wi-Fi MAC / OUI binding and enforcement
+    # --------------------------------------------------------------
+    incoming_mac = device_mac.strip().upper()
+
+    if not incoming_mac:
+        # Strict mode: always require MAC for this API
+        if device.esp_mac is None:
+            logger.warning(
+                "Ingest for device %s missing MAC on first contact", device_name
+            )
+            return HttpResponseBadRequest("Device MAC required")
+        else:
+            logger.warning(
+                "Device %s has bound MAC %s but request omitted MAC",
+                device.name,
+                device.esp_mac,
+            )
+            return HttpResponseForbidden("Device MAC required")
+
+    if device.esp_mac is None:
+        # First valid contact: bind this MAC to the device, but only
+        # if no other Device already owns it.
+        if Device.objects.filter(esp_mac=incoming_mac).exclude(pk=device.pk).exists():
+            logger.warning(
+                "MAC %s already bound to another device; rejecting bind for %s",
+                incoming_mac,
+                device.name,
+            )
+            return HttpResponseForbidden("Device MAC already bound to another device")
+
+        device.bind_esp_mac_if_needed(incoming_mac)
+        logger.info(
+            "Bound MAC %s (OUI %s) as second factor for device %s",
+            device.esp_mac,
+            device.esp_oui,
+            device.name,
+        )
+    else:
+        # MAC already bound: enforce exact match
+        if device.esp_mac != incoming_mac:
+            logger.warning(
+                "MAC mismatch for device %s: expected %s, got %s",
+                device.name,
+                device.esp_mac,
+                incoming_mac,
+            )
+            return HttpResponseForbidden("Device MAC mismatch")
 
     # 3) use ONLY stored public key (no updating from ESP32 payload)
     device_pub_pem = getattr(device, "pubkey_pem", None)
