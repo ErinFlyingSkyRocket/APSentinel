@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block content %}
-<main style="padding:1.5rem;">
+<main style="padding:1.5rem; max-width:1600px; margin:0 auto;">
   <h1 class="page-title" style="font-size:1.4rem; margin-bottom:0.75rem;">
     AP / Device Activity Analysis
   </h1>
@@ -64,9 +64,11 @@
     <a href="{% url 'ap_activity' %}" class="btn-link">Reset all filters</a>
   </div>
 
-  <div class="dash-row" style="margin-top:0.25rem;">
+  <!-- MAIN TWO-COLUMN LAYOUT -->
+  <div class="dash-row" style="margin-top:0.25rem; align-items:stretch; gap:1rem;">
     <!-- LEFT: AP list -->
-    <div class="obs-block">
+    <div class="obs-block"
+         style="flex:0 0 40%; max-height:calc(100vh - 260px); display:flex; flex-direction:column;">
       <div style="padding:0.75rem 0.9rem;">
         <h3 style="margin:0 0 0.25rem; font-size:0.9rem;">APs in selected window</h3>
         <p style="margin:0; color:var(--muted); font-size:0.75rem;">
@@ -75,8 +77,8 @@
         </p>
       </div>
 
-      <!-- SCROLLABLE list of APs (approx ~30 rows visible, then scroll) -->
-      <div class="table-wrap" style="max-height:520px; overflow-y:auto;">
+      <!-- SCROLLABLE list of APs (fills card height, then scrolls) -->
+      <div class="table-wrap" style="flex:1 1 auto; overflow-y:auto;">
         <table class="table-tight">
           <thead>
             <tr>
@@ -132,7 +134,8 @@
     </div>
 
     <!-- RIGHT: Timeline + details + gaps -->
-    <div class="obs-block">
+    <div class="obs-block"
+         style="flex:1; max-height:calc(100vh - 260px); overflow:auto;">
       <div style="padding:0.75rem 0.9rem;">
         <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem;">
           <div>
@@ -318,7 +321,7 @@
                       <td>
                         {% if s.dynamic_anomaly %}
                           <span class="badge badge-down">
-                            {{ s.dynamic_status|default:"ANOMALY" }}
+                            {{ s.dynamic_status|default:"ANOMY" }}
                           </span>
                         {% elif s.dynamic_status %}
                           {% if s.dynamic_status == "WHITELISTED_STRONG" or s.dynamic_status == "WHITELISTED_WEAK" %}
