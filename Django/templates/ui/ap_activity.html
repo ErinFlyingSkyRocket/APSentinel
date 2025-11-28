@@ -85,11 +85,10 @@
             <tr>
               <th>SSID</th>
               <th>BSSID</th>
-              <th>Ch</th>
-              <th>Security</th>
-              <th>Status</th>
-              <th>Count</th>
+              <th style="width:40px;">Ch</th>
+              <th style="width:70px; text-align:right;">Count</th>
               <th style="width:70px;"></th>
+              <th style="width:140px; text-align:right;">Status</th>
             </tr>
           </thead>
           <tbody>
@@ -103,8 +102,14 @@
                   <!-- Narrow BSSID column -->
                   <td class="mono ch-16">{{ ap.bssid }}</td>
                   <td>{{ ap.channel|default:"—" }}</td>
-                  <td class="ellipsis">{{ ap.security|default:"—" }}</td>
-                  <td>
+                  <td class="r" style="text-align:right;">{{ ap.count }}</td>
+                  <td style="white-space:nowrap; text-align:right;">
+                    <a href="?device={{ device_id }}&ssid={{ ssid|urlencode }}&bssid={{ ap.bssid }}&hours={{ hours_default }}&since={{ since|date:'Y-m-d\\TH:i' }}&until={{ until|date:'Y-m-d\\TH:i' }}"
+                       class="btn-link">
+                      Focus
+                    </a>
+                  </td>
+                  <td style="text-align:right;">
                     {% if ap.dynamic_anomaly %}
                       <span class="badge badge-down">
                         {{ ap.dynamic_status|default:"ANOMALY" }}
@@ -119,17 +124,10 @@
                       <span class="badge badge-up">OK</span>
                     {% endif %}
                   </td>
-                  <td class="r">{{ ap.count }}</td>
-                  <td style="white-space:nowrap; text-align:right;">
-                    <a href="?device={{ device_id }}&ssid={{ ssid|urlencode }}&bssid={{ ap.bssid }}&hours={{ hours_default }}&since={{ since|date:'Y-m-d\\TH:i' }}&until={{ until|date:'Y-m-d\\TH:i' }}"
-                       class="btn-link">
-                      Focus
-                    </a>
-                  </td>
                 </tr>
               {% endfor %}
             {% else %}
-              <tr><td colspan="7" class="empty">No observations in this window.</td></tr>
+              <tr><td colspan="6" class="empty">No observations in this window.</td></tr>
             {% endif %}
           </tbody>
         </table>
