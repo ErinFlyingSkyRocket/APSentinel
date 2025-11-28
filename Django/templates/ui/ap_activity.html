@@ -78,8 +78,9 @@
       </div>
 
       <!-- SCROLLABLE list of APs (fills card height, then scrolls) -->
-      <div class="table-wrap" style="flex:1 1 auto; overflow-y:auto;">
-        <table class="table-tight">
+      <div class="table-wrap"
+           style="flex:1 1 auto; overflow-y:auto; overflow-x:hidden;">
+        <table class="table-tight" style="table-layout:fixed; width:100%;">
           <thead>
             <tr>
               <th>SSID</th>
@@ -88,18 +89,21 @@
               <th>Security</th>
               <th>Status</th>
               <th>Count</th>
-              <th>Last seen</th>
-              <th></th>
+              <th style="width:70px;"></th>
             </tr>
           </thead>
           <tbody>
             {% if ap_list %}
               {% for ap in ap_list %}
                 <tr {% if ap.bssid == current_bssid %}style="background:#0e1422;"{% endif %}>
-                  <td>{{ ap.ssid|default:"&lt;hidden&gt;"|safe }}</td>
-                  <td class="mono">{{ ap.bssid }}</td>
+                  <!-- SSID truncated if long -->
+                  <td class="ellipsis">
+                    {{ ap.ssid|default:"&lt;hidden&gt;"|safe }}
+                  </td>
+                  <!-- Narrow BSSID column -->
+                  <td class="mono ch-16">{{ ap.bssid }}</td>
                   <td>{{ ap.channel|default:"—" }}</td>
-                  <td>{{ ap.security|default:"—" }}</td>
+                  <td class="ellipsis">{{ ap.security|default:"—" }}</td>
                   <td>
                     {% if ap.dynamic_anomaly %}
                       <span class="badge badge-down">
@@ -116,8 +120,7 @@
                     {% endif %}
                   </td>
                   <td class="r">{{ ap.count }}</td>
-                  <td>{{ ap.last_ts_max|date:"M j, Y g:i a" }}</td>
-                  <td>
+                  <td style="white-space:nowrap; text-align:right;">
                     <a href="?device={{ device_id }}&ssid={{ ssid|urlencode }}&bssid={{ ap.bssid }}&hours={{ hours_default }}&since={{ since|date:'Y-m-d\\TH:i' }}&until={{ until|date:'Y-m-d\\TH:i' }}"
                        class="btn-link">
                       Focus
@@ -126,16 +129,15 @@
                 </tr>
               {% endfor %}
             {% else %}
-              <tr><td colspan="8" class="empty">No observations in this window.</td></tr>
+              <tr><td colspan="7" class="empty">No observations in this window.</td></tr>
             {% endif %}
           </tbody>
         </table>
       </div>
     </div>
 
-    <!-- RIGHT: Timeline + details + gaps -->
-    <div class="obs-block"
-         style="flex:1; max-height:calc(100vh - 260px); overflow:auto;">
+    <!-- RIGHT: Timeline + details + gaps (no internal scroll, like before) -->
+    <div class="obs-block" style="flex:1;">
       <div style="padding:0.75rem 0.9rem;">
         <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem;">
           <div>
@@ -321,7 +323,7 @@
                       <td>
                         {% if s.dynamic_anomaly %}
                           <span class="badge badge-down">
-                            {{ s.dynamic_status|default:"ANOMY" }}
+                            {{ s.dynamic_status|default:"ANOMALY" }}
                           </span>
                         {% elif s.dynamic_status %}
                           {% if s.dynamic_status == "WHITELISTED_STRONG" or s.dynamic_status == "WHITELISTED_WEAK" %}
