@@ -60,7 +60,6 @@ void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
 }
 
 // ---------- YOUR SETTINGS ----------
-// ---------- YOUR SETTINGS ----------
 // WiFi credentials (placeholder)
 #define WIFI_SSID   "YOUR_WIFI_SSID"
 #define WIFI_PASS   "YOUR_WIFI_PASSWORD"
@@ -85,6 +84,7 @@ YOUR_CA_CERTIFICATE_HERE_IF_USING_HTTPS
 -----END CERTIFICATE-----
 )PEM";
 // -----------------------------------
+
 
 // --- auto-stop after 30s ---
 const uint32_t STOP_AFTER_MS = 30 * 1000UL;

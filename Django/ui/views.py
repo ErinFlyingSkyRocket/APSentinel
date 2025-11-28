@@ -568,6 +568,8 @@ def ap_activity(request):
     - For a focused BSSID, show timeline + gaps + meta.
     - Show property drift (first vs last obs for that BSSID).
     - Show other APs using the same SSID in this window (possible evil twins).
+    - Per-day evil-twin frequency and per-hour RSSI view.
+    - NEW: timeline chart now shows both count/min and avg RSSI/min.
     """
 
     device_id = request.GET.get("device") or ""
@@ -677,7 +679,8 @@ def ap_activity(request):
         current_bssid = ap_list[0]["bssid"]
 
     chart_labels = []
-    chart_values = []
+    chart_counts = []   # # obs per bucket
+    chart_rssi = []     # avg RSSI per bucket
     gaps = []
     current_ssid = ""
     current_device_name = ""
@@ -687,6 +690,11 @@ def ap_activity(request):
     property_drift = []
     ssid_siblings = []
     gap_threshold = timedelta(minutes=30)
+
+    # evil-twin per-day and per-hour structures
+    evil_day_labels = []
+    evil_day_counts = []
+    evil_series_by_day_out = {}
 
     if current_bssid:
         ap_qs = qs_window.filter(bssid=current_bssid).order_by("server_ts")
@@ -698,16 +706,25 @@ def ap_activity(request):
             current_ssid = first_obs.ssid or "<hidden>"
             current_device_name = first_obs.device.name if first_obs.device else "—"
 
-        # 1-minute buckets for the chart
+        # ------------------------------------------------------------------
+        # 1-minute buckets for the chart: count + avg RSSI per minute
+        # ------------------------------------------------------------------
         bucketed = (
             ap_qs.annotate(bucket=TruncMinute("server_ts"))
             .values("bucket")
-            .annotate(count=Count("id"))
+            .annotate(
+                count=Count("id"),
+                avg_rssi=Avg("rssi_current"),
+            )
             .order_by("bucket")
         )
 
         chart_labels = [row["bucket"].isoformat() for row in bucketed]
-        chart_values = [row["count"] for row in bucketed]
+        chart_counts = [row["count"] for row in bucketed]
+        chart_rssi = [
+            row["avg_rssi"] if row["avg_rssi"] is not None else None
+            for row in bucketed
+        ]
 
         # gap detection (> 30 minutes between detections)
         timestamps = list(ap_qs.values_list("server_ts", flat=True))
@@ -735,6 +752,68 @@ def ap_activity(request):
             avg_rssi=Avg("rssi_current"),
         )
         device_count = ap_qs.values("device_id").distinct().count()
+
+        # ---------------------------------------------
+        # Evil-twin anomalies per day / per hour
+        # ---------------------------------------------
+        evil_series_by_day = {}  # day_str -> {hour -> {"count", "rssi_sum", "rssi_n"}}
+
+        for obs in ap_qs:
+            _attach_dynamic_status(obs)
+            if not getattr(obs, "dynamic_anomaly", False):
+                continue
+
+            ts = getattr(obs, "server_ts", None)
+            if not ts:
+                continue
+
+            ts_local = timezone.localtime(ts)
+            day_str = ts_local.date().isoformat()
+            hour = ts_local.hour  # 0..23
+
+            day_bucket = evil_series_by_day.setdefault(day_str, {})
+            hour_bucket = day_bucket.setdefault(
+                hour,
+                {"count": 0, "rssi_sum": 0.0, "rssi_n": 0},
+            )
+
+            hour_bucket["count"] += 1
+
+            rssi = getattr(obs, "rssi_current", None)
+            if rssi is not None:
+                try:
+                    hour_bucket["rssi_sum"] += float(rssi)
+                    hour_bucket["rssi_n"] += 1
+                except (TypeError, ValueError):
+                    pass
+
+        for day_str, hours in evil_series_by_day.items():
+            hour_labels = list(range(24))
+            counts = []
+            avg_rssi = []
+            total_for_day = 0
+
+            for h in hour_labels:
+                hb = hours.get(h, {"count": 0, "rssi_sum": 0.0, "rssi_n": 0})
+                c = hb["count"]
+                total_for_day += c
+                counts.append(c)
+                if hb["rssi_n"]:
+                    avg_rssi.append(round(hb["rssi_sum"] / hb["rssi_n"], 1))
+                else:
+                    avg_rssi.append(None)
+
+            evil_series_by_day_out[day_str] = {
+                "hour_labels": hour_labels,
+                "counts": counts,
+                "avg_rssi": avg_rssi,
+                "total": total_for_day,
+            }
+
+        evil_day_labels = sorted(evil_series_by_day_out.keys())
+        evil_day_counts = [
+            evil_series_by_day_out[d]["total"] for d in evil_day_labels
+        ]
 
         # ---------------------------------------------
         # Meta + dynamic status for focused AP (last)
@@ -851,7 +930,8 @@ def ap_activity(request):
         "current_ssid": current_ssid,
         "current_device_name": current_device_name,
         "chart_labels_json": json.dumps(chart_labels, cls=DjangoJSONEncoder),
-        "chart_values_json": json.dumps(chart_values, cls=DjangoJSONEncoder),
+        "chart_values_json": json.dumps(chart_counts, cls=DjangoJSONEncoder),
+        "chart_rssi_json": json.dumps(chart_rssi, cls=DjangoJSONEncoder),
         "gaps": gaps,
         "gap_threshold_minutes": int(gap_threshold.total_seconds() // 60),
         "ap_stats": ap_stats,
@@ -859,6 +939,10 @@ def ap_activity(request):
         "current_meta": current_meta,
         "property_drift": property_drift,
         "ssid_siblings": ssid_siblings,
+        # evil-twin charts
+        "evil_day_labels_json": json.dumps(evil_day_labels, cls=DjangoJSONEncoder),
+        "evil_day_counts_json": json.dumps(evil_day_counts, cls=DjangoJSONEncoder),
+        "evil_series_by_day_json": json.dumps(evil_series_by_day_out, cls=DjangoJSONEncoder),
     }
 
     return render(request, "ui/ap_activity.html", context)

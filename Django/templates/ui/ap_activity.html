@@ -117,6 +117,7 @@
                   <td>{{ ap.last_ts_max|date:"M j, Y g:i a" }}</td>
                   <td>
                     <a href="?device={{ device_id }}&ssid={{ ssid|urlencode }}&bssid={{ ap.bssid }}&hours={{ hours_default }}&since={{ since|date:'Y-m-d\\TH:i' }}&until={{ until|date:'Y-m-d\\TH:i' }}"
+
                        class="btn-link">
                       Focus
                     </a>
@@ -148,7 +149,7 @@
               <p style="margin:0; color:var(--muted); font-size:0.75rem;">
                 SSID: {{ current_ssid|default:"&lt;hidden&gt;"|safe }},
                 Device: {{ current_device_name }},
-                Bucket: 1-minute counts of observations
+                Bucket: 1-minute counts &amp; avg RSSI
               </p>
             {% endif %}
           </div>
@@ -330,8 +331,34 @@
         {% endif %}
       {% endif %}
 
+      <!-- Timeline chart -->
       <div style="padding:0 0.9rem 0.5rem;">
         <canvas id="apTimelineChart" style="width:100%; max-height:260px;"></canvas>
+      </div>
+
+      <!-- NEW: Evil-twin frequency by day -->
+      <div id="evilTwinBlock" style="padding:0 0.9rem 0.25rem; display:none;">
+        <h4 style="font-size:0.85rem; margin:0 0 0.25rem;">
+          Evil-twin anomalies by day
+        </h4>
+        <p style="color:var(--muted); font-size:0.75rem; margin:0 0 0.5rem;">
+          Each bar shows how many evil-twin-style whitelist anomalies this AP had on that day.
+        </p>
+        <canvas id="evilTwinDayChart" style="width:100%; max-height:220px;"></canvas>
+      </div>
+
+      <!-- NEW: Per-hour RSSI view for selected day -->
+      <div id="evilTwinHourBlock" style="padding:0.25rem 0.9rem 0.75rem; display:none;">
+        <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.25rem;">
+          <label for="evilDaySelect" style="font-size:0.8rem; color:var(--muted);">
+            Day:
+          </label>
+          <select id="evilDaySelect" style="font-size:0.8rem; padding:0.1rem 0.4rem;"></select>
+        </div>
+        <canvas id="evilTwinHourChart" style="width:100%; max-height:220px;"></canvas>
+        <p style="color:var(--muted); font-size:0.7rem; margin-top:0.25rem;">
+          Bars show evil-twin detections per hour for the selected day. Hover to see average RSSI (dBm).
+        </p>
       </div>
 
       <div style="padding:0.5rem 0.9rem 0.9rem;">
@@ -368,10 +395,13 @@
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<!-- Timeline chart: count + avg RSSI -->
 <script>
   (function() {
     const labels = {{ chart_labels_json|safe }};
-    const values = {{ chart_values_json|safe }};
+    const counts = {{ chart_values_json|safe }};
+    const rssiVals = {{ chart_rssi_json|default:"[]"|safe }};
 
     const canvas = document.getElementById('apTimelineChart');
     if (!canvas || !labels.length) return;
@@ -380,12 +410,22 @@
       type: 'line',
       data: {
         labels: labels,
-        datasets: [{
-          label: 'Observations per minute',
-          data: values,
-          fill: false,
-          tension: 0.25
-        }]
+        datasets: [
+          {
+            label: 'Observations per minute',
+            data: counts,
+            fill: false,
+            tension: 0.25,
+            yAxisID: 'yCount'
+          },
+          {
+            label: 'Avg RSSI (dBm)',
+            data: rssiVals,
+            fill: false,
+            tension: 0.25,
+            yAxisID: 'yRssi'
+          }
+        ]
       },
       options: {
         responsive: true,
@@ -401,14 +441,22 @@
               }
             }
           },
-          y: {
+          yCount: {
+            position: 'left',
             beginAtZero: true,
             title: { display: true, text: '# detections' },
             ticks: { precision: 0 }
+          },
+          yRssi: {
+            position: 'right',
+            title: { display: true, text: 'RSSI (dBm)' },
+            suggestedMin: -100,
+            suggestedMax: -30,
+            reverse: true
           }
         },
         plugins: {
-          legend: { display: false },
+          legend: { display: true },
           tooltip: {
             callbacks: {
               title: function(items) {
@@ -420,6 +468,159 @@
         }
       }
     });
+  })();
+</script>
+
+<!-- NEW: Evil-twin per-day and per-hour RSSI charts -->
+<script>
+  (function() {
+    const dayLabels = {{ evil_day_labels_json|default:"[]"|safe }};
+    const dayCounts = {{ evil_day_counts_json|default:"[]"|safe }};
+    const perDay = {{ evil_series_by_day_json|default:"{}"|safe }};
+
+    const block = document.getElementById('evilTwinBlock');
+    const hourBlock = document.getElementById('evilTwinHourBlock');
+    const dayCanvas = document.getElementById('evilTwinDayChart');
+    const hourCanvas = document.getElementById('evilTwinHourChart');
+    const daySelect = document.getElementById('evilDaySelect');
+
+    // No evil-twin data for this AP/window
+    if (!block || !dayCanvas || !Array.isArray(dayLabels) || !dayLabels.length) {
+      return;
+    }
+
+    // Show blocks once we confirm there is data
+    block.style.display = '';
+    if (hourBlock) {
+      hourBlock.style.display = '';
+    }
+
+    // Populate day selector
+    if (daySelect) {
+      dayLabels.forEach(function(d, idx) {
+        const cfg = perDay[d] || {};
+        const total = cfg.total != null ? cfg.total : (dayCounts[idx] || 0);
+        const opt = document.createElement('option');
+        opt.value = d;
+        opt.textContent = d + ' (' + total + ' hits)';
+        // Default select the last (most recent) day
+        if (idx === dayLabels.length - 1) {
+          opt.selected = true;
+        }
+        daySelect.appendChild(opt);
+      });
+    }
+
+    // Per-day bar chart
+    const dayChart = new Chart(dayCanvas, {
+      type: 'bar',
+      data: {
+        labels: dayLabels,
+        datasets: [{
+          label: 'Evil-twin detections per day',
+          data: dayCounts,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: {
+            title: { display: true, text: 'Day' },
+          },
+          y: {
+            title: { display: true, text: 'Detections' },
+            beginAtZero: true,
+            ticks: { precision: 0 }
+          }
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: function(ctx) {
+                const v = ctx.parsed.y || 0;
+                return v + ' evil-twin detections';
+              }
+            }
+          }
+        }
+      }
+    });
+
+    let hourChart = null;
+
+    function buildHourChart(day) {
+      if (!hourCanvas || !perDay[day]) return;
+
+      const cfg = perDay[day];
+      const hourLabels = cfg.hour_labels || [];
+      const counts = cfg.counts || [];
+      const avgRssi = cfg.avg_rssi || [];
+
+      if (hourChart) {
+        hourChart.destroy();
+      }
+
+      hourChart = new Chart(hourCanvas, {
+        type: 'bar',
+        data: {
+          labels: hourLabels,
+          datasets: [{
+            label: 'Evil-twin detections per hour',
+            data: counts,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: {
+              title: { display: true, text: 'Hour of day' },
+            },
+            y: {
+              title: { display: true, text: 'Detections' },
+              beginAtZero: true,
+              ticks: { precision: 0 }
+            }
+          },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                title: function(items) {
+                  const h = items[0].label;
+                  return 'Hour ' + h + ':00–' + h + ':59';
+                },
+                label: function(ctx) {
+                  const v = ctx.parsed.y || 0;
+                  const hIndex = ctx.dataIndex;
+                  const rssi = avgRssi[hIndex];
+                  if (rssi !== null && rssi !== undefined) {
+                    return v + ' detections, avg RSSI ' + rssi + ' dBm';
+                  }
+                  return v + ' detections';
+                }
+              }
+            }
+          }
+        }
+      });
+    }
+
+    const initialDay =
+      (daySelect && daySelect.value) ||
+      (dayLabels.length ? dayLabels[dayLabels.length - 1] : null);
+
+    if (initialDay) {
+      buildHourChart(initialDay);
+    }
+
+    if (daySelect) {
+      daySelect.addEventListener('change', function() {
+        buildHourChart(this.value);
+      });
+    }
   })();
 </script>
 {% endblock %}
