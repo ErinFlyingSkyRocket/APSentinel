@@ -1142,25 +1142,30 @@ def ap_activity(request):
 
 
 # ---------------------------------------------------------------------
-# WHITELIST ANOMALY OVERRIDES (list + edit)
+# WHITELIST ANOMALY OVERRIDES (list + create form)
 # ---------------------------------------------------------------------
 @login_required
 def anomaly_overrides(request):
     """
-    List all whitelist anomaly overrides.
+    List all whitelist anomaly overrides and show the create form.
 
     Each override suppresses specific evil-twin / whitelist anomaly alerts
     for a (SSID, BSSID, status_code) combination until it is disabled or expires.
     """
+
+    # NOTE: WhitelistAnomalyOverride has no "group" FK, so we only join "created_by".
     overrides = (
         WhitelistAnomalyOverride.objects
-        .select_related("group")
-        .order_by("-created_at")
+        .select_related("created_by")
+        .order_by("-is_active", "-created_at")
     )
+
     return render(
         request,
         "ui/anomaly_overrides.html",
-        {"overrides": overrides},
+        {
+            "overrides": overrides,
+        },
     )
 
 
