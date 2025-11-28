@@ -4,9 +4,32 @@ from django.urls import path
 from django.contrib.auth import views as auth_views
 
 from .views import health, ingest_observation, hashchain_analysis
-from ui.views import dashboard, observations, observation_detail, observations_unwhitelisted, unregistered_aps, ap_activity, anomaly_overrides, anomaly_override_edit
-from devices.views import devices_view, add_device_view, delete_device_view, edit_device_view
-from evidence.views import latest_observation, whitelist_list, whitelist_add, whitelist_edit, whitelist_delete, whitelist_entry_delete, whitelist_add_from_observation
+from ui.views import (
+    dashboard,
+    observations,
+    observation_detail,
+    observations_unwhitelisted,
+    unregistered_aps,
+    ap_activity,
+    anomaly_overrides,
+    anomaly_override_edit,
+)
+from devices.views import (
+    devices_view,
+    add_device_view,
+    delete_device_view,
+    edit_device_view,
+)
+from evidence.views import (
+    latest_observation,
+    whitelist_list,
+    whitelist_add,
+    whitelist_edit,
+    whitelist_delete,
+    whitelist_entry_delete,
+    whitelist_add_from_observation,
+)
+
 
 urlpatterns = [
 
@@ -56,7 +79,9 @@ urlpatterns = [
     path("ui/whitelist/<int:pk>/delete", whitelist_delete, name="whitelist_delete"),
     path("ui/whitelist/entry/<int:pk>/delete", whitelist_entry_delete, name="whitelist_entry_delete"),
 
-    # anomaly override management
+    # --------------------------------------------------------------
+    # Anomaly Override Management
+    # --------------------------------------------------------------
     path("ui/anomaly-overrides", anomaly_overrides, name="anomaly_overrides"),
     path("ui/anomaly-overrides/<int:pk>/edit", anomaly_override_edit, name="anomaly_override_edit"),
 
