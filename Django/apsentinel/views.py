@@ -10,6 +10,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.db import transaction
 from django.utils import timezone as dj_timezone
 from django.shortcuts import render
+from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 
 from devices.models import Device
 from evidence.models import (
@@ -633,12 +634,14 @@ def hashchain_analysis(request):
     """
     UI page to view & verify the hash chain for ONE device (ESP32).
     Supports filters:
+      - ?device=<id>
       - ?ssid=Hospital
       - ?bssid=AA:BB:...
       - ?integrity=bad|ok|all
       - ?since=2025-01-01
       - ?until=2025-01-31
-      - ?limit=200
+      - ?limit=200      (rows per page)
+      - ?page=2
     """
     devices = Device.objects.filter(is_active=True).order_by("name")
     device_id = request.GET.get("device")
@@ -661,6 +664,9 @@ def hashchain_analysis(request):
                 "filter_since": "",
                 "filter_until": "",
                 "filter_limit": "",
+                "page_obj": None,
+                "paginator": None,
+                "base_querystring": "",
             },
         )
 
@@ -678,28 +684,46 @@ def hashchain_analysis(request):
                 "chart_bssid": "[]",
                 "totals": {"total": 0, "ok": 0, "bad": 0},
                 "error": "Device not found",
+                "filter_ssid": "",
+                "filter_bssid": "",
+                "filter_integrity": "all",
+                "filter_since": "",
+                "filter_until": "",
+                "filter_limit": "",
+                "page_obj": None,
+                "paginator": None,
+                "base_querystring": "",
             },
         )
 
-    # query all obs for this device, ordered
+    # ------------------------------------------------------------------
+    # Build full chain first (chronological order is important here)
+    # ------------------------------------------------------------------
     obs_qs = (
         AccessPointObservation.objects
         .filter(device=device)
         .order_by("server_ts", "id")
     )
-
-    # build full chain first
-    full_rows, full_timeline, full_totals = _build_chain_rows_from_queryset(obs_qs)
+    full_rows, _full_timeline, _full_totals = _build_chain_rows_from_queryset(obs_qs)
 
     # ------------------------------------------------------------------
-    # apply UI filters on top of built rows
+    # Apply UI filters
     # ------------------------------------------------------------------
     f_ssid = (request.GET.get("ssid") or "").strip()
     f_bssid = (request.GET.get("bssid") or "").strip().upper()
     f_integrity = request.GET.get("integrity") or "all"
     f_since = (request.GET.get("since") or "").strip()
     f_until = (request.GET.get("until") or "").strip()
-    f_limit = request.GET.get("limit") or ""
+
+    limit_param = request.GET.get("limit") or ""
+    try:
+        per_page = int(limit_param or 100)
+        if per_page <= 0:
+            per_page = 100
+    except ValueError:
+        per_page = 100
+
+    page_number = request.GET.get("page") or 1
 
     filtered_rows = []
     for r in full_rows:
@@ -714,6 +738,7 @@ def hashchain_analysis(request):
                     continue
             except Exception:
                 pass
+
         if f_until:
             try:
                 until_dt = datetime.fromisoformat(f_until)
@@ -741,15 +766,9 @@ def hashchain_analysis(request):
 
         filtered_rows.append(r)
 
-    # limit
-    if f_limit:
-        try:
-            lim = int(f_limit)
-            filtered_rows = filtered_rows[: max(lim, 1)]
-        except ValueError:
-            pass
-
-    # rebuild charts from filtered rows
+    # ------------------------------------------------------------------
+    # Charts use ALL filtered rows in chronological order
+    # ------------------------------------------------------------------
     timeline_points = [
         {"ts": r["obs"].server_ts.isoformat(), "ok": r["ok"], "id": r["obs"].id}
         for r in filtered_rows
@@ -760,7 +779,11 @@ def hashchain_analysis(request):
         o = r["obs"]
         if o.bssid:
             bssid_counts[o.bssid] = bssid_counts.get(o.bssid, 0) + 1
-    top_bssid_items = sorted(bssid_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+    top_bssid_items = sorted(
+        bssid_counts.items(),
+        key=lambda x: x[1],
+        reverse=True,
+    )[:10]
     chart_bssid = json.dumps(
         [{"bssid": b, "count": c} for (b, c) in top_bssid_items]
     )
@@ -771,13 +794,32 @@ def hashchain_analysis(request):
         "bad": sum(1 for r in filtered_rows if not r["ok"]),
     }
 
+    # ------------------------------------------------------------------
+    # Table: newest first + pagination
+    # ------------------------------------------------------------------
+    # reverse so latest observations appear first
+    filtered_rows_desc = list(reversed(filtered_rows))
+
+    paginator = Paginator(filtered_rows_desc, per_page)
+    try:
+        page_obj = paginator.page(page_number)
+    except (PageNotAnInteger, EmptyPage):
+        page_obj = paginator.page(1)
+
+    rows_page = page_obj.object_list
+
+    # base querystring without "page" for pagination links
+    qs_params = request.GET.copy()
+    qs_params.pop("page", None)
+    base_querystring = qs_params.urlencode()
+
     return render(
         request,
         "apsentinel/hashchain_analysis.html",
         {
             "devices": devices,
             "selected_device": device,
-            "rows": filtered_rows,
+            "rows": rows_page,  # only current page, newest first
             "chart_timeline": json.dumps(timeline_points),
             "chart_bssid": chart_bssid,
             "totals": totals,
@@ -786,7 +828,10 @@ def hashchain_analysis(request):
             "filter_integrity": f_integrity,
             "filter_since": f_since,
             "filter_until": f_until,
-            "filter_limit": f_limit,
+            "filter_limit": limit_param or str(per_page),
+            "page_obj": page_obj,
+            "paginator": paginator,
+            "base_querystring": base_querystring,
         },
     )
 

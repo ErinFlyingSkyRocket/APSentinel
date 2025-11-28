@@ -109,7 +109,8 @@
     </div>
 
     <!-- table -->
-    <div class="table-wrap" style="overflow-x:auto;">
+    <div class="table-wrap"
+         style="overflow-x:auto; max-height:420px; overflow-y:auto; border-radius:0.75rem;">
       <table style="width:100%; border-collapse:collapse; font-size:0.78rem;">
         <thead>
           <tr style="background:#0f172a; color:#e5e7eb;">
@@ -147,12 +148,43 @@
             {% endfor %}
           {% else %}
             <tr>
-              <td colspan="9" style="padding:0.6rem; color:#9ca3af; background:#0f172a;">No observations matching filters.</td>
+              <td colspan="9" style="padding:0.6rem; color:#9ca3af; background:#0f172a;">
+                No observations matching filters.
+              </td>
             </tr>
           {% endif %}
         </tbody>
       </table>
     </div>
+
+    {% if page_obj and paginator %}
+      <div style="margin-top:0.75rem; display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap;">
+        <div style="display:flex; gap:0.4rem; align-items:center;">
+          {% if page_obj.has_previous %}
+            <a href="?{% if base_querystring %}{{ base_querystring }}&{% endif %}page={{ page_obj.previous_page_number }}"
+               style="padding:0.25rem 0.7rem; border-radius:0.4rem; background:#111827; border:1px solid #1f2937; color:#e5e7eb; text-decoration:none; font-size:0.7rem;">
+              ‹ Prev
+            </a>
+          {% endif %}
+
+          <span style="color:#9ca3af; font-size:0.7rem;">
+            Page {{ page_obj.number }} of {{ paginator.num_pages }}
+          </span>
+
+          {% if page_obj.has_next %}
+            <a href="?{% if base_querystring %}{{ base_querystring }}&{% endif %}page={{ page_obj.next_page_number }}"
+               style="padding:0.25rem 0.7rem; border-radius:0.4rem; background:#111827; border:1px solid #1f2937; color:#e5e7eb; text-decoration:none; font-size:0.7rem;">
+              Next ›
+            </a>
+          {% endif %}
+        </div>
+
+        <span style="color:#6b7280; font-size:0.65rem;">
+          Showing {{ rows|length }} of {{ paginator.count }} records ({{ filter_limit }} per page).
+          Use the “Limit” field above to change rows per page.
+        </span>
+      </div>
+    {% endif %}
 
     <p style="margin-top:0.75rem; color:#fbbf24; font-size:0.65rem;">
       ⚠️ Integrity validation ensures chain-of-custody of ESP32 records — it does not verify Access Point authenticity.
