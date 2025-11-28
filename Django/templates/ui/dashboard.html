@@ -89,9 +89,15 @@
         Cases: {{ anomalies_critical|length }}
       </span>
     </h3>
-    <p style="margin:0 0 8px; color:var(--muted); font-size:0.75rem;">
+    <p style="margin:0 0 4px; color:var(--muted); font-size:0.75rem;">
       Each row represents a <strong>current</strong> whitelist anomaly case (SSID + BSSID + status),
-      stacked across the last 60 minutes. It stays listed until the whitelist or overrides are updated.
+      stacked across the last 60 minutes. A case will disappear once the whitelist is updated or
+      an active override is created.
+    </p>
+    <p style="margin:0 0 8px; color:var(--muted); font-size:0.7rem;">
+      Manage acknowledged / intentional anomalies via
+      <a href="{% url 'anomaly_overrides' %}">Whitelist anomaly overrides</a>.
+      Overrides suppress matching entries from this table.
     </p>
 
     <div class="table-wrap">

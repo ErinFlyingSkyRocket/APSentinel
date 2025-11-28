@@ -2,11 +2,12 @@ from datetime import timedelta, datetime
 import csv
 import json
 
-from django.shortcuts import render, get_object_or_404
+from django.shortcuts import render, get_object_or_404, redirect
 from django.core.paginator import Paginator
 from django.http import HttpResponse
 from django.utils.dateparse import parse_date
 from django.contrib.auth.decorators import login_required
+from django.contrib import messages
 from django.db.models import Q, Max, Count, Min, Avg
 from django.db.models.functions import TruncMinute, TruncHour, TruncDate
 from django.core.serializers.json import DjangoJSONEncoder
@@ -96,15 +97,20 @@ def _is_anomaly_ignored(obs):
     Matching rules:
       - If BSSID is set in override: match by BSSID (case-insensitive).
       - Else if only SSID is set: match by SSID (case-insensitive).
-      - If status is set in override: match that exact dynamic_status.
-        If status is blank/NULL in override: match ANY status for that
+      - If status_code is set in override: match that exact dynamic_status.
+        If status_code is blank/NULL in override: match ANY status for that
         SSID/BSSID.
+      - Override must be is_active=True and (no expiry OR expires_at in future).
     """
     ssid = (obs.ssid or "").strip()
     bssid = (obs.bssid or "").strip()
     status = (getattr(obs, "dynamic_status", None) or "").strip()
 
-    qs = WhitelistAnomalyOverride.objects.filter(active=True)
+    now = timezone.now()
+
+    qs = WhitelistAnomalyOverride.objects.filter(is_active=True)
+    # Only consider non-expired overrides
+    qs = qs.filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
 
     # If we don't even have SSID/BSSID, nothing to match
     if bssid:
@@ -115,7 +121,11 @@ def _is_anomaly_ignored(obs):
         return False
 
     if status:
-        qs = qs.filter(Q(status__iexact=status) | Q(status="") | Q(status__isnull=True))
+        qs = qs.filter(
+            Q(status_code__iexact=status)
+            | Q(status_code__exact="")
+            | Q(status_code__isnull=True)
+        )
 
     return qs.exists()
 
@@ -218,7 +228,7 @@ def dashboard(request):
             break
 
     # --- CRITICAL: whitelist anomalies / possible evil twins (last 60 min) ---
-    # We group anomalies by (SSID, BSSID, dynamic_status) and stack counts.
+    # Group anomalies by (SSID, BSSID, dynamic_status) and stack counts.
     anomalies_qs = (
         AccessPointObservation.objects
         .select_related("device")
@@ -281,8 +291,7 @@ def dashboard(request):
             "device_rows": device_rows,
             "current_unwhitelisted": current_unwhitelisted,
             "recent_alerts": recent_alerts,
-            # NOTE: now a list of grouped anomaly "cases", not raw observations.
-            # Each item has: ssid, bssid, status, count, first_seen, last_seen, sample
+            # grouped anomaly "cases"
             "anomalies_critical": anomalies_critical,
         },
     )
@@ -435,8 +444,7 @@ def observations(request):
     # ----------------------
     # We scan all observations (newest first), keep only dynamic_anomaly==True,
     # skip any covered by WhitelistAnomalyOverride, and keep the latest row
-    # per (ssid, bssid). This means anomalies remain listed until the whitelist
-    # or overrides are edited so they are no longer anomalies.
+    # per (ssid, bssid).
     base_anom_qs = (
         AccessPointObservation.objects
         .select_related("device")
@@ -633,6 +641,9 @@ def unregistered_aps(request):
     )
 
 
+# ---------------------------------------------------------------------
+# AP ACTIVITY VIEW
+# ---------------------------------------------------------------------
 @login_required
 def ap_activity(request):
     """
@@ -764,7 +775,7 @@ def ap_activity(request):
     chart_day_counts = []
     chart_day_rssi = []
 
-    # NEW: 24h-per-day structure for hour view
+    # 24h-per-day structure for hour view
     hour_series_by_day_out = {}  # day_str -> {hour_labels, counts, avg_rssi}
     hour_day_labels = []
 
@@ -837,8 +848,7 @@ def ap_activity(request):
         ]
 
         # ------------------------------------------------------------------
-        # 3) NEW: 24-hour structure per calendar day for hour view
-        #     hours_raw[YYYY-MM-DD][hour] = {count, rssi_sum, rssi_n}
+        # 3) 24-hour structure per calendar day for hour view
         # ------------------------------------------------------------------
         hours_raw = {}
         for ts, rssi in ap_qs.values_list("server_ts", "rssi_current"):
@@ -984,10 +994,11 @@ def ap_activity(request):
             ref_channel = getattr(ref, "channel", None)
             ref_security = getattr(ref, "security", "") or ""
             ref_oui = getattr(ref, "oui", "") or ""
-            ref_rsn_group = getattr(ref, "rsn_group", "") or ""
-            ref_rsn_pair = getattr(ref, "rsn_pair", "") or ""
-            ref_akm = getattr(ref, "akm", "") or ""
-            ref_pmf = getattr(ref, "pmf", "") or ""
+
+            ref_rsn_text = getattr(ref, "rsn_text", "") or ""
+            ref_akm_list = getattr(ref, "akm_list", "") or ""
+            ref_pmf_capable = getattr(ref, "pmf_capable", False)
+            ref_pmf_required = getattr(ref, "pmf_required", False)
 
             current_meta = {
                 "ssid": ref.ssid or "<hidden>",
@@ -995,10 +1006,10 @@ def ap_activity(request):
                 "oui": ref_oui,
                 "channel": ref_channel,
                 "security": ref_security,
-                "rsn_group": ref_rsn_group,
-                "rsn_pair": ref_rsn_pair,
-                "akm": ref_akm,
-                "pmf": ref_pmf,
+                "rsn_group": ref_rsn_text,
+                "rsn_pair": "",
+                "akm": ref_akm_list,
+                "pmf": f"cap={'Y' if ref_pmf_capable else 'N'}, req={'Y' if ref_pmf_required else 'N'}",
                 "dynamic_status": getattr(ref, "dynamic_status", None),
                 "dynamic_anomaly": getattr(ref, "dynamic_anomaly", False),
             }
@@ -1019,10 +1030,18 @@ def ap_activity(request):
                 add_diff("Channel", getattr(first_obs, "channel", None), ref_channel)
                 add_diff("Security", getattr(first_obs, "security", ""), ref_security)
                 add_diff("OUI", getattr(first_obs, "oui", ""), ref_oui)
-                add_diff("RSN group", getattr(first_obs, "rsn_group", ""), ref_rsn_group)
-                add_diff("RSN pair", getattr(first_obs, "rsn_pair", ""), ref_rsn_pair)
-                add_diff("AKM", getattr(first_obs, "akm", ""), ref_akm)
-                add_diff("PMF", getattr(first_obs, "pmf", ""), ref_pmf)
+                add_diff("RSN text", getattr(first_obs, "rsn_text", ""), ref_rsn_text)
+                add_diff("AKM list", getattr(first_obs, "akm_list", ""), ref_akm_list)
+                add_diff(
+                    "PMF capable",
+                    getattr(first_obs, "pmf_capable", False),
+                    ref_pmf_capable,
+                )
+                add_diff(
+                    "PMF required",
+                    getattr(first_obs, "pmf_required", False),
+                    ref_pmf_required,
+                )
 
             # ----------------------------------------------------------
             # Other BSSIDs using the *same SSID* in this window
@@ -1064,10 +1083,13 @@ def ap_activity(request):
                             "last_seen": row["last_seen"],
                             "channel": getattr(rep, "channel", None),
                             "security": getattr(rep, "security", "") or "",
-                            "rsn_group": getattr(rep, "rsn_group", "") or "",
-                            "rsn_pair": getattr(rep, "rsn_pair", "") or "",
-                            "akm": getattr(rep, "akm", "") or "",
-                            "pmf": getattr(rep, "pmf", "") or "",
+                            "rsn_group": getattr(rep, "rsn_text", "") or "",
+                            "rsn_pair": "",
+                            "akm": getattr(rep, "akm_list", "") or "",
+                            "pmf": (
+                                f"cap={'Y' if getattr(rep, 'pmf_capable', False) else 'N'}, "
+                                f"req={'Y' if getattr(rep, 'pmf_required', False) else 'N'}"
+                            ),
                             "dynamic_status": getattr(rep, "dynamic_status", None),
                             "dynamic_anomaly": getattr(rep, "dynamic_anomaly", False),
                         }
@@ -1098,7 +1120,7 @@ def ap_activity(request):
         "chart_day_counts_json": json.dumps(chart_day_counts, cls=DjangoJSONEncoder),
         "chart_day_rssi_json": json.dumps(chart_day_rssi, cls=DjangoJSONEncoder),
 
-        # NEW: 24h-per-day hour resolution
+        # 24h-per-day hour resolution
         "hour_series_by_day_json": json.dumps(hour_series_by_day_out, cls=DjangoJSONEncoder),
         "hour_day_labels_json": json.dumps(hour_day_labels, cls=DjangoJSONEncoder),
 
@@ -1117,3 +1139,80 @@ def ap_activity(request):
     }
 
     return render(request, "ui/ap_activity.html", context)
+
+
+# ---------------------------------------------------------------------
+# WHITELIST ANOMALY OVERRIDES (list + edit)
+# ---------------------------------------------------------------------
+@login_required
+def anomaly_overrides(request):
+    """
+    List all whitelist anomaly overrides.
+
+    Each override suppresses specific evil-twin / whitelist anomaly alerts
+    for a (SSID, BSSID, status_code) combination until it is disabled or expires.
+    """
+    overrides = (
+        WhitelistAnomalyOverride.objects
+        .select_related("group")
+        .order_by("-created_at")
+    )
+    return render(
+        request,
+        "ui/anomaly_overrides.html",
+        {"overrides": overrides},
+    )
+
+
+@login_required
+def anomaly_override_edit(request, pk):
+    """
+    Edit a single override:
+      - update reason / expiry
+      - toggle active/disabled
+      - delete override
+    """
+    ov = get_object_or_404(WhitelistAnomalyOverride, pk=pk)
+
+    if request.method == "POST":
+        action = request.POST.get("action")
+
+        # Toggle active / disabled
+        if action == "toggle":
+            ov.is_active = not ov.is_active
+            ov.save()
+            messages.success(request, "Override state updated.")
+            return redirect("anomaly_overrides")
+
+        # Delete override
+        elif action == "delete":
+            ov.delete()
+            messages.success(request, "Override removed.")
+            return redirect("anomaly_overrides")
+
+        # Update reason and expiry
+        elif action == "update":
+            expires_raw = request.POST.get("expires_at") or ""
+            if expires_raw:
+                try:
+                    naive = datetime.fromisoformat(expires_raw)
+                    ov.expires_at = timezone.make_aware(
+                        naive,
+                        timezone.get_current_timezone()
+                    )
+                except Exception:
+                    messages.error(request, "Invalid expiry datetime format.")
+                    return redirect("anomaly_override_edit", pk=ov.pk)
+            else:
+                ov.expires_at = None
+
+            ov.reason = request.POST.get("reason") or ""
+            ov.save()
+            messages.success(request, "Override updated.")
+            return redirect("anomaly_overrides")
+
+    return render(
+        request,
+        "ui/anomaly_override_edit.html",
+        {"ov": ov},
+    )
