@@ -41,6 +41,12 @@
         Whitelist
       </a>
 
+      <!-- NEW: Anomaly override management -->
+      <a href="/ui/anomaly-overrides"
+         class="{% if request.path|slice:':20' == '/ui/anomaly-overrides' %}active{% endif %}">
+        Anomaly Overrides
+      </a>
+
       <a href="/ui/hashchain"
          class="{% if request.path|slice:':13' == '/ui/hashchain' %}active{% endif %}">
         Hash Chain
@@ -69,7 +75,6 @@
     </nav>
   </header>
 
-  <!-- Flash messages -->
   {% if messages %}
     <div class="messages">
       {% for message in messages %}
