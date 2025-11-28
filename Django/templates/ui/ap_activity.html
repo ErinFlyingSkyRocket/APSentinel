@@ -117,7 +117,6 @@
                   <td>{{ ap.last_ts_max|date:"M j, Y g:i a" }}</td>
                   <td>
                     <a href="?device={{ device_id }}&ssid={{ ssid|urlencode }}&bssid={{ ap.bssid }}&hours={{ hours_default }}&since={{ since|date:'Y-m-d\\TH:i' }}&until={{ until|date:'Y-m-d\\TH:i' }}"
-
                        class="btn-link">
                       Focus
                     </a>
@@ -149,7 +148,16 @@
               <p style="margin:0; color:var(--muted); font-size:0.75rem;">
                 SSID: {{ current_ssid|default:"&lt;hidden&gt;"|safe }},
                 Device: {{ current_device_name }},
-                Bucket: 1-minute counts &amp; avg RSSI
+                Resolution:
+                <select id="timelineMode" style="font-size:0.75rem; padding:0.05rem 0.3rem; margin-left:0.25rem;">
+                  <option value="minute">Per minute</option>
+                  <option value="hour">Per hour (24h)</option>
+                  <option value="day">Per day (calendar)</option>
+                </select>
+                <span id="hourDayWrapper" style="margin-left:0.5rem; display:none;">
+                  Day:
+                  <select id="hourDaySelect" style="font-size:0.75rem; padding:0.05rem 0.3rem;"></select>
+                </span>
               </p>
             {% endif %}
           </div>
@@ -396,31 +404,100 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-<!-- Timeline chart: count + avg RSSI -->
+<!-- Timeline chart: minute / hour (per-day 24h) / day, count + avg RSSI -->
 <script>
   (function() {
-    const labels = {{ chart_labels_json|safe }};
-    const counts = {{ chart_values_json|safe }};
-    const rssiVals = {{ chart_rssi_json|default:"[]"|safe }};
+    const minuteLabels = {{ chart_labels_json|safe }};
+    const minuteCounts = {{ chart_values_json|safe }};
+    const minuteRssi   = {{ chart_rssi_json|default:"[]"|safe }};
 
-    const canvas = document.getElementById('apTimelineChart');
-    if (!canvas || !labels.length) return;
+    // NEW: 24h-per-day structure for hour mode
+    const hourSeriesByDay = {{ hour_series_by_day_json|default:"{}"|safe }};
+    const hourDayLabels   = {{ hour_day_labels_json|default:"[]"|safe }};
 
-    new Chart(canvas, {
+    const dayLabels = {{ chart_day_labels_json|default:"[]"|safe }};
+    const dayCounts = {{ chart_day_counts_json|default:"[]"|safe }};
+    const dayRssi   = {{ chart_day_rssi_json|default:"[]"|safe }};
+
+    const canvas      = document.getElementById('apTimelineChart');
+    const modeSelect  = document.getElementById('timelineMode');
+    const hourWrapper = document.getElementById('hourDayWrapper');
+    const hourSelect  = document.getElementById('hourDaySelect');
+
+    if (!canvas) return;
+
+    // populate hour-day selector
+    if (hourSelect && Array.isArray(hourDayLabels) && hourDayLabels.length) {
+      hourDayLabels.forEach(function(d, idx) {
+        const opt = document.createElement('option');
+        opt.value = d;
+        opt.textContent = d;
+        if (idx === hourDayLabels.length - 1) {
+          opt.selected = true;
+        }
+        hourSelect.appendChild(opt);
+      });
+    }
+
+    let currentMode = 'minute';
+    // default hour-day: last available date
+    let currentHourDay = (hourDayLabels.length ? hourDayLabels[hourDayLabels.length - 1] : null);
+
+    if (!minuteLabels.length && (hourDayLabels.length && hourSeriesByDay[currentHourDay])) {
+      currentMode = 'hour';
+    }
+    if (!minuteLabels.length && !hourDayLabels.length && dayLabels.length) {
+      currentMode = 'day';
+    }
+    if (modeSelect) {
+      modeSelect.value = currentMode;
+    }
+
+    function toggleHourControls() {
+      if (!hourWrapper) return;
+      hourWrapper.style.display = (currentMode === 'hour' && hourDayLabels.length) ? '' : 'none';
+    }
+    toggleHourControls();
+
+    function getDataForCurrentMode() {
+      if (currentMode === 'hour') {
+        if (!currentHourDay || !hourSeriesByDay[currentHourDay]) {
+          // fallback to last available day
+          if (hourDayLabels.length) {
+            currentHourDay = hourDayLabels[hourDayLabels.length - 1];
+          }
+        }
+        const series = hourSeriesByDay[currentHourDay] || {};
+        return {
+          labels: series.hour_labels || [],
+          counts: series.counts || [],
+          rssi:   series.avg_rssi || []
+        };
+      }
+      if (currentMode === 'day') {
+        return { labels: dayLabels, counts: dayCounts, rssi: dayRssi };
+      }
+      return { labels: minuteLabels, counts: minuteCounts, rssi: minuteRssi };
+    }
+
+    const initial = getDataForCurrentMode();
+    if (!initial.labels.length) return;
+
+    const chart = new Chart(canvas, {
       type: 'line',
       data: {
-        labels: labels,
+        labels: initial.labels,
         datasets: [
           {
-            label: 'Observations per minute',
-            data: counts,
+            label: 'Observations',
+            data: initial.counts,
             fill: false,
             tension: 0.25,
             yAxisID: 'yCount'
           },
           {
             label: 'Avg RSSI (dBm)',
-            data: rssiVals,
+            data: initial.rssi,
             fill: false,
             tension: 0.25,
             yAxisID: 'yRssi'
@@ -435,8 +512,17 @@
             title: { display: true, text: 'Time' },
             ticks: {
               maxTicksLimit: 8,
-              callback: function(value, index, ticks) {
+              callback: function(value) {
                 const raw = this.getLabelForValue(value);
+                if (currentMode === 'day') {
+                  // YYYY-MM-DD
+                  return raw;
+                }
+                if (currentMode === 'hour') {
+                  // 0..23
+                  return raw + ':00';
+                }
+                // minute mode: YYYY-MM-DDTHH:MM:SS → MM-DD HH:MM
                 return raw.replace('T', ' ').slice(5, 16);
               }
             }
@@ -461,6 +547,13 @@
             callbacks: {
               title: function(items) {
                 const raw = items[0].label;
+                if (currentMode === 'day') {
+                  return raw;
+                }
+                if (currentMode === 'hour') {
+                  return 'Hour ' + raw + ':00–' + raw + ':59' +
+                         (currentHourDay ? (' on ' + currentHourDay) : '');
+                }
                 return raw.replace('T', ' ');
               }
             }
@@ -468,6 +561,31 @@
         }
       }
     });
+
+    if (modeSelect) {
+      modeSelect.addEventListener('change', function() {
+        currentMode = this.value;
+        toggleHourControls();
+        const d = getDataForCurrentMode();
+        chart.data.labels = d.labels;
+        chart.data.datasets[0].data = d.counts;
+        chart.data.datasets[1].data = d.rssi;
+        chart.update();
+      });
+    }
+
+    if (hourSelect) {
+      hourSelect.addEventListener('change', function() {
+        currentHourDay = this.value;
+        if (currentMode === 'hour') {
+          const d = getDataForCurrentMode();
+          chart.data.labels = d.labels;
+          chart.data.datasets[0].data = d.counts;
+          chart.data.datasets[1].data = d.rssi;
+          chart.update();
+        }
+      });
+    }
   })();
 </script>
 
@@ -503,7 +621,6 @@
         const opt = document.createElement('option');
         opt.value = d;
         opt.textContent = d + ' (' + total + ' hits)';
-        // Default select the last (most recent) day
         if (idx === dayLabels.length - 1) {
           opt.selected = true;
         }

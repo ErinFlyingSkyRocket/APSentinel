@@ -8,7 +8,7 @@ from django.http import HttpResponse
 from django.utils.dateparse import parse_date
 from django.contrib.auth.decorators import login_required
 from django.db.models import Q, Max, Count, Min, Avg
-from django.db.models.functions import TruncMinute
+from django.db.models.functions import TruncMinute, TruncHour, TruncDate
 from django.core.serializers.json import DjangoJSONEncoder
 from django.utils import timezone
 
@@ -568,8 +568,9 @@ def ap_activity(request):
     - For a focused BSSID, show timeline + gaps + meta.
     - Show property drift (first vs last obs for that BSSID).
     - Show other APs using the same SSID in this window (possible evil twins).
-    - Per-day evil-twin frequency and per-hour RSSI view.
-    - NEW: timeline chart now shows both count/min and avg RSSI/min.
+    - Evil-twin frequency charts.
+    - Timeline now supports 3 resolutions: per-minute, per-hour (24h per day),
+      and per-day (calendar).
     """
 
     device_id = request.GET.get("device") or ""
@@ -678,9 +679,19 @@ def ap_activity(request):
     if not current_bssid and ap_list:
         current_bssid = ap_list[0]["bssid"]
 
+    # minute-level
     chart_labels = []
-    chart_counts = []   # # obs per bucket
-    chart_rssi = []     # avg RSSI per bucket
+    chart_counts = []
+    chart_rssi = []
+    # day-level
+    chart_day_labels = []
+    chart_day_counts = []
+    chart_day_rssi = []
+
+    # NEW: 24h-per-day structure for hour view
+    hour_series_by_day_out = {}  # day_str -> {hour_labels, counts, avg_rssi}
+    hour_day_labels = []
+
     gaps = []
     current_ssid = ""
     current_device_name = ""
@@ -707,26 +718,97 @@ def ap_activity(request):
             current_device_name = first_obs.device.name if first_obs.device else "—"
 
         # ------------------------------------------------------------------
-        # 1-minute buckets for the chart: count + avg RSSI per minute
+        # 1) Per-minute buckets: count + avg RSSI
         # ------------------------------------------------------------------
-        bucketed = (
-            ap_qs.annotate(bucket=TruncMinute("server_ts"))
-            .values("bucket")
+        minute_bucketed = (
+            ap_qs.annotate(bucket_min=TruncMinute("server_ts"))
+            .values("bucket_min")
             .annotate(
                 count=Count("id"),
                 avg_rssi=Avg("rssi_current"),
             )
-            .order_by("bucket")
+            .order_by("bucket_min")
         )
 
-        chart_labels = [row["bucket"].isoformat() for row in bucketed]
-        chart_counts = [row["count"] for row in bucketed]
+        chart_labels = [row["bucket_min"].isoformat() for row in minute_bucketed]
+        chart_counts = [row["count"] for row in minute_bucketed]
         chart_rssi = [
             row["avg_rssi"] if row["avg_rssi"] is not None else None
-            for row in bucketed
+            for row in minute_bucketed
         ]
 
-        # gap detection (> 30 minutes between detections)
+        # ------------------------------------------------------------------
+        # 2) Per-day buckets (calendar-style view)
+        # ------------------------------------------------------------------
+        day_bucketed = (
+            ap_qs.annotate(bucket_day=TruncDate("server_ts"))
+            .values("bucket_day")
+            .annotate(
+                count=Count("id"),
+                avg_rssi=Avg("rssi_current"),
+            )
+            .order_by("bucket_day")
+        )
+
+        chart_day_labels = [
+            row["bucket_day"].isoformat() if row["bucket_day"] else ""
+            for row in day_bucketed
+        ]
+        chart_day_counts = [row["count"] for row in day_bucketed]
+        chart_day_rssi = [
+            row["avg_rssi"] if row["avg_rssi"] is not None else None
+            for row in day_bucketed
+        ]
+
+        # ------------------------------------------------------------------
+        # 3) NEW: 24-hour structure per calendar day for hour view
+        #     hours_raw[YYYY-MM-DD][hour] = {count, rssi_sum, rssi_n}
+        # ------------------------------------------------------------------
+        hours_raw = {}
+        for ts, rssi in ap_qs.values_list("server_ts", "rssi_current"):
+            if not ts:
+                continue
+            ts_local = timezone.localtime(ts)
+            d_str = ts_local.date().isoformat()
+            h = ts_local.hour  # 0..23
+
+            d_map = hours_raw.setdefault(d_str, {})
+            slot = d_map.setdefault(h, {"count": 0, "rssi_sum": 0.0, "rssi_n": 0})
+            slot["count"] += 1
+            if rssi is not None:
+                try:
+                    slot["rssi_sum"] += float(rssi)
+                    slot["rssi_n"] += 1
+                except (TypeError, ValueError):
+                    pass
+
+        for d_str, hours in hours_raw.items():
+            labels = list(range(24))
+            counts = []
+            avg_rssi = []
+            for h in labels:
+                slot = hours.get(h)
+                if slot:
+                    counts.append(slot["count"])
+                    if slot["rssi_n"]:
+                        avg_rssi.append(slot["rssi_sum"] / slot["rssi_n"])
+                    else:
+                        avg_rssi.append(None)
+                else:
+                    counts.append(0)
+                    avg_rssi.append(None)
+
+            hour_series_by_day_out[d_str] = {
+                "hour_labels": labels,
+                "counts": counts,
+                "avg_rssi": avg_rssi,
+            }
+
+        hour_day_labels = sorted(hour_series_by_day_out.keys())
+
+        # ------------------------------------------------------------------
+        # Gap detection (> 30 minutes between detections)
+        # ------------------------------------------------------------------
         timestamps = list(ap_qs.values_list("server_ts", flat=True))
         prev_ts = None
         for ts in timestamps:
@@ -929,9 +1011,21 @@ def ap_activity(request):
         "current_bssid": current_bssid,
         "current_ssid": current_ssid,
         "current_device_name": current_device_name,
+
+        # minute resolution
         "chart_labels_json": json.dumps(chart_labels, cls=DjangoJSONEncoder),
         "chart_values_json": json.dumps(chart_counts, cls=DjangoJSONEncoder),
         "chart_rssi_json": json.dumps(chart_rssi, cls=DjangoJSONEncoder),
+
+        # day resolution
+        "chart_day_labels_json": json.dumps(chart_day_labels, cls=DjangoJSONEncoder),
+        "chart_day_counts_json": json.dumps(chart_day_counts, cls=DjangoJSONEncoder),
+        "chart_day_rssi_json": json.dumps(chart_day_rssi, cls=DjangoJSONEncoder),
+
+        # NEW: 24h-per-day hour resolution
+        "hour_series_by_day_json": json.dumps(hour_series_by_day_out, cls=DjangoJSONEncoder),
+        "hour_day_labels_json": json.dumps(hour_day_labels, cls=DjangoJSONEncoder),
+
         "gaps": gaps,
         "gap_threshold_minutes": int(gap_threshold.total_seconds() // 60),
         "ap_stats": ap_stats,
@@ -939,6 +1033,7 @@ def ap_activity(request):
         "current_meta": current_meta,
         "property_drift": property_drift,
         "ssid_siblings": ssid_siblings,
+
         # evil-twin charts
         "evil_day_labels_json": json.dumps(evil_day_labels, cls=DjangoJSONEncoder),
         "evil_day_counts_json": json.dumps(evil_day_counts, cls=DjangoJSONEncoder),
