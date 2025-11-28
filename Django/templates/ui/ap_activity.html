@@ -77,44 +77,30 @@
         </p>
       </div>
 
-      <!-- SCROLLABLE list of APs (fills card height, then scrolls) -->
-      <div class="table-wrap"
-           style="flex:1 1 auto; overflow-y:auto; overflow-x:hidden;">
-        <table class="table-tight" style="table-layout:fixed; width:100%;">
+      <!-- Scrollable list of APs (fills card height, then scrolls) -->
+      <div class="table-wrap" style="flex:1 1 auto; overflow-y:auto;">
+        <table class="table-tight">
           <thead>
             <tr>
               <th>SSID</th>
-              <th style="width:11rem;">BSSID</th>
-              <th style="width:0.5rem;"></th>
-              <th style="width:3rem;">Ch</th>
-              <th style="width:4rem; text-align:right;">Count</th>
-              <th style="width:60px; text-align:right;"></th>
-              <th style="width:140px; text-align:right;">Status</th>
+              <th>BSSID</th>
+              <th>Ch</th>
+              <th>Security</th>
+              <th>Status</th>
+              <th>Count</th>
+              <th>Last seen</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
             {% if ap_list %}
               {% for ap in ap_list %}
                 <tr {% if ap.bssid == current_bssid %}style="background:#0e1422;"{% endif %}>
-                  <!-- SSID truncated if long -->
-                  <td class="ellipsis">
-                    {{ ap.ssid|default:"&lt;hidden&gt;"|safe }}
-                  </td>
-                  <!-- Wider BSSID column -->
-                  <td class="mono" style="white-space:nowrap;">
-                    {{ ap.bssid }}
-                  </td>
-                  <!-- Spacer column -->
-                  <td></td>
+                  <td>{{ ap.ssid|default:"&lt;hidden&gt;"|safe }}</td>
+                  <td class="mono">{{ ap.bssid }}</td>
                   <td>{{ ap.channel|default:"—" }}</td>
-                  <td class="r" style="text-align:right;">{{ ap.count }}</td>
-                  <td style="white-space:nowrap; text-align:right;">
-                    <a href="?device={{ device_id }}&ssid={{ ssid|urlencode }}&bssid={{ ap.bssid }}&hours={{ hours_default }}&since={{ since|date:'Y-m-d\\TH:i' }}&until={{ until|date:'Y-m-d\\TH:i' }}"
-                       class="btn-link">
-                      Focus
-                    </a>
-                  </td>
-                  <td style="text-align:right;">
+                  <td>{{ ap.security|default:"—" }}</td>
+                  <td>
                     {% if ap.dynamic_anomaly %}
                       <span class="badge badge-down">
                         {{ ap.dynamic_status|default:"ANOMALY" }}
@@ -129,10 +115,18 @@
                       <span class="badge badge-up">OK</span>
                     {% endif %}
                   </td>
+                  <td class="r">{{ ap.count }}</td>
+                  <td>{{ ap.last_ts_max|date:"M j, Y g:i a" }}</td>
+                  <td>
+                    <a href="?device={{ device_id }}&ssid={{ ssid|urlencode }}&bssid={{ ap.bssid }}&hours={{ hours_default }}&since={{ since|date:'Y-m-d\\TH:i' }}&until={{ until|date:'Y-m-d\\TH:i' }}"
+                       class="btn-link">
+                      Focus
+                    </a>
+                  </td>
                 </tr>
               {% endfor %}
             {% else %}
-              <tr><td colspan="7" class="empty">No observations in this window.</td></tr>
+              <tr><td colspan="8" class="empty">No observations in this window.</td></tr>
             {% endif %}
           </tbody>
         </table>
@@ -680,7 +674,7 @@
 
       const cfg = perDay[day];
       const hourLabels = cfg.hour_labels || [];
-      const counts = cfg.counts || [];
+      the counts = cfg.counts || [];
       const avgRssi = cfg.avg_rssi || [];
 
       if (hourChart) {
