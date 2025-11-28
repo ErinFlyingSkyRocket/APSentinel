@@ -86,10 +86,9 @@
               <th>BSSID</th>
               <th>Ch</th>
               <th>Security</th>
-              <th>Status</th>
               <th>Count</th>
-              <th>Last seen</th>
               <th></th>
+              <th>Status</th>
             </tr>
           </thead>
           <tbody>
@@ -100,6 +99,13 @@
                   <td class="mono">{{ ap.bssid }}</td>
                   <td>{{ ap.channel|default:"—" }}</td>
                   <td>{{ ap.security|default:"—" }}</td>
+                  <td class="r">{{ ap.count }}</td>
+                  <td style="white-space:nowrap; text-align:right;">
+                    <a href="?device={{ device_id }}&ssid={{ ssid|urlencode }}&bssid={{ ap.bssid }}&hours={{ hours_default }}&since={{ since|date:'Y-m-d\\TH:i' }}&until={{ until|date:'Y-m-d\\TH:i' }}"
+                       class="btn-link">
+                      Focus
+                    </a>
+                  </td>
                   <td>
                     {% if ap.dynamic_anomaly %}
                       <span class="badge badge-down">
@@ -115,18 +121,10 @@
                       <span class="badge badge-up">OK</span>
                     {% endif %}
                   </td>
-                  <td class="r">{{ ap.count }}</td>
-                  <td>{{ ap.last_ts_max|date:"M j, Y g:i a" }}</td>
-                  <td>
-                    <a href="?device={{ device_id }}&ssid={{ ssid|urlencode }}&bssid={{ ap.bssid }}&hours={{ hours_default }}&since={{ since|date:'Y-m-d\\TH:i' }}&until={{ until|date:'Y-m-d\\TH:i' }}"
-                       class="btn-link">
-                      Focus
-                    </a>
-                  </td>
                 </tr>
               {% endfor %}
             {% else %}
-              <tr><td colspan="8" class="empty">No observations in this window.</td></tr>
+              <tr><td colspan="7" class="empty">No observations in this window.</td></tr>
             {% endif %}
           </tbody>
         </table>
@@ -674,7 +672,7 @@
 
       const cfg = perDay[day];
       const hourLabels = cfg.hour_labels || [];
-      the counts = cfg.counts || [];
+      const counts = cfg.counts || [];
       const avgRssi = cfg.avg_rssi || [];
 
       if (hourChart) {
