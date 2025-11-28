@@ -94,23 +94,20 @@ def _is_anomaly_ignored(obs):
     Check WhitelistAnomalyOverride to see if this dynamic anomaly
     should be suppressed (treated as 'acknowledged / intentional').
 
-    Matching rules:
+    Matching rules (based on current model fields):
       - If BSSID is set in override: match by BSSID (case-insensitive).
       - Else if only SSID is set: match by SSID (case-insensitive).
-      - If status_code is set in override: match that exact dynamic_status.
-        If status_code is blank/NULL in override: match ANY status for that
+      - If status is set in override: match that exact dynamic_status.
+        If status is blank/NULL in override: match ANY status for that
         SSID/BSSID.
-      - Override must be is_active=True and (no expiry OR expires_at in future).
+      - Override must have active=True.
     """
     ssid = (obs.ssid or "").strip()
     bssid = (obs.bssid or "").strip()
     status = (getattr(obs, "dynamic_status", None) or "").strip()
 
-    now = timezone.now()
-
-    qs = WhitelistAnomalyOverride.objects.filter(is_active=True)
-    # Only consider non-expired overrides
-    qs = qs.filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
+    # Base: only active overrides
+    qs = WhitelistAnomalyOverride.objects.filter(active=True)
 
     # If we don't even have SSID/BSSID, nothing to match
     if bssid:
@@ -122,9 +119,9 @@ def _is_anomaly_ignored(obs):
 
     if status:
         qs = qs.filter(
-            Q(status_code__iexact=status)
-            | Q(status_code__exact="")
-            | Q(status_code__isnull=True)
+            Q(status__iexact=status)
+            | Q(status__exact="")
+            | Q(status__isnull=True)
         )
 
     return qs.exists()
@@ -1147,17 +1144,16 @@ def ap_activity(request):
 @login_required
 def anomaly_overrides(request):
     """
-    List all whitelist anomaly overrides and show the create form.
+    List all whitelist anomaly overrides.
 
     Each override suppresses specific evil-twin / whitelist anomaly alerts
-    for a (SSID, BSSID, status_code) combination until it is disabled or expires.
+    for a (SSID, BSSID, status) combination until it is disabled.
     """
 
-    # NOTE: WhitelistAnomalyOverride has no "group" FK, so we only join "created_by".
     overrides = (
         WhitelistAnomalyOverride.objects
         .select_related("created_by")
-        .order_by("-is_active", "-created_at")
+        .order_by("-active", "-created_at")
     )
 
     return render(
