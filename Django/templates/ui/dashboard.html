@@ -84,14 +84,14 @@
   <!-- CURRENT whitelist anomalies / possible evil twin -->
   <div class="obs-block" style="margin-top:16px;">
     <h3>
-      Whitelist anomalies / possible evil twin (current)
+      Whitelist anomalies / possible evil twin (current, grouped)
       <span style="float:right; font-size:0.75rem; color:var(--muted);">
-        Total: {{ anomalies_critical|length }}
+        Cases: {{ anomalies_critical|length }}
       </span>
     </h3>
     <p style="margin:0 0 8px; color:var(--muted); font-size:0.75rem;">
-      These APs are <strong>currently violating</strong> whitelist expectations.
-      They remain listed until the whitelist is updated or corrected.
+      Each row represents a <strong>current</strong> whitelist anomaly case (SSID + BSSID + status),
+      stacked across the last 60 minutes. It stays listed until the whitelist or overrides are updated.
     </p>
 
     <div class="table-wrap">
@@ -107,37 +107,59 @@
             <th>AKM</th>
             <th>PMF</th>
             <th>Status</th>
+            <th>Count (last 60m)</th>
+            <th>First seen</th>
             <th>Last seen</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
           {% if anomalies_critical %}
-            {% for o in anomalies_critical %}
-              <tr>
-                <td class="ellipsis">{{ o.ssid|default:"—" }}</td>
-                <td class="mono ch-16">{{ o.bssid }}</td>
-                <td>{{ o.device.name }}</td>
-                <td>{{ o.channel }}</td>
-                <td>{{ o.security|default:"—" }}</td>
-                <td>{{ o.rsn_text|default:"—" }}</td>
-                <td>{{ o.akm_list|default:"—" }}</td>
-                <td>
-                  cap={{ o.pmf_capable|yesno:"Y,N" }},
-                  req={{ o.pmf_required|yesno:"Y,N" }}
-                </td>
-                <td>{{ o.dynamic_status|default:o.match_status|default:"(none)" }}</td>
-                <td style="white-space:nowrap;">
-                  {{ o.server_ts|date:"M j, Y, g:i a" }}
-                </td>
-                <td>
-                  <a class="btn-link" href="{% url 'observation_detail' o.id %}">Details</a>
-                </td>
-              </tr>
+            {% for case in anomalies_critical %}
+              {% with o=case.sample %}
+                <tr>
+                  <td class="ellipsis">{{ case.ssid|default:"—" }}</td>
+                  <td class="mono ch-16">{{ case.bssid }}</td>
+                  <td>
+                    {% if o.device %}
+                      {{ o.device.name }}
+                    {% else %}
+                      —
+                    {% endif %}
+                  </td>
+                  <td>{{ o.channel|default:"—" }}</td>
+                  <td>{{ o.security|default:"—" }}</td>
+                  <td>{{ o.rsn_text|default:"—" }}</td>
+                  <td>{{ o.akm_list|default:"—" }}</td>
+                  <td>
+                    cap={{ o.pmf_capable|yesno:"Y,N" }},
+                    req={{ o.pmf_required|yesno:"Y,N" }}
+                  </td>
+                  <td>{{ case.status|default:"ANOMALY" }}</td>
+                  <td class="r">{{ case.count }}</td>
+                  <td style="white-space:nowrap;">
+                    {% if case.first_seen %}
+                      {{ case.first_seen|date:"M j, Y, g:i a" }}
+                    {% else %}
+                      —
+                    {% endif %}
+                  </td>
+                  <td style="white-space:nowrap;">
+                    {% if case.last_seen %}
+                      {{ case.last_seen|date:"M j, Y, g:i a" }}
+                    {% else %}
+                      —
+                    {% endif %}
+                  </td>
+                  <td>
+                    <a class="btn-link" href="{% url 'observation_detail' o.id %}">Details</a>
+                  </td>
+                </tr>
+              {% endwith %}
             {% endfor %}
           {% else %}
             <tr>
-              <td colspan="11" class="empty">
+              <td colspan="13" class="empty">
                 No current whitelist anomalies.  
                 All known SSIDs match expected AP properties.
               </td>

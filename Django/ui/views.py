@@ -13,7 +13,7 @@ from django.core.serializers.json import DjangoJSONEncoder
 from django.utils import timezone
 
 from devices.models import Device
-from evidence.models import AccessPointObservation
+from evidence.models import AccessPointObservation, WhitelistAnomalyOverride
 from apsentinel.views import _match_whitelist  # dynamic whitelist check
 
 
@@ -86,6 +86,38 @@ def _attach_dynamic_status(obs):
     )
 
     return obs
+
+
+def _is_anomaly_ignored(obs):
+    """
+    Check WhitelistAnomalyOverride to see if this dynamic anomaly
+    should be suppressed (treated as 'acknowledged / intentional').
+
+    Matching rules:
+      - If BSSID is set in override: match by BSSID (case-insensitive).
+      - Else if only SSID is set: match by SSID (case-insensitive).
+      - If status is set in override: match that exact dynamic_status.
+        If status is blank/NULL in override: match ANY status for that
+        SSID/BSSID.
+    """
+    ssid = (obs.ssid or "").strip()
+    bssid = (obs.bssid or "").strip()
+    status = (getattr(obs, "dynamic_status", None) or "").strip()
+
+    qs = WhitelistAnomalyOverride.objects.filter(active=True)
+
+    # If we don't even have SSID/BSSID, nothing to match
+    if bssid:
+        qs = qs.filter(bssid__iexact=bssid)
+    elif ssid:
+        qs = qs.filter(ssid__iexact=ssid)
+    else:
+        return False
+
+    if status:
+        qs = qs.filter(Q(status__iexact=status) | Q(status="") | Q(status__isnull=True))
+
+    return qs.exists()
 
 
 # ---------------------------------------------------------------------
@@ -186,6 +218,7 @@ def dashboard(request):
             break
 
     # --- CRITICAL: whitelist anomalies / possible evil twins (last 60 min) ---
+    # We group anomalies by (SSID, BSSID, dynamic_status) and stack counts.
     anomalies_qs = (
         AccessPointObservation.objects
         .select_related("device")
@@ -193,12 +226,48 @@ def dashboard(request):
         .order_by("-server_ts")
     )
 
-    anomalies_critical = []
+    cases_by_key = {}  # (ssid_norm, bssid_norm, status_norm) -> summary dict
+
     for o in anomalies_qs:
         _attach_dynamic_status(o)
-        if o.dynamic_anomaly:
-            anomalies_critical.append(o)
-    # Optionally cap, e.g.: anomalies_critical = anomalies_critical[:100]
+        if not o.dynamic_anomaly:
+            continue
+
+        # Skip if user has created an override for this anomaly
+        if _is_anomaly_ignored(o):
+            continue
+
+        ssid_norm = (o.ssid or "").strip()
+        bssid_norm = (o.bssid or "").strip()
+        status_norm = (getattr(o, "dynamic_status", None) or "").strip()
+
+        key = (ssid_norm, bssid_norm, status_norm)
+        existing = cases_by_key.get(key)
+
+        if existing is None:
+            cases_by_key[key] = {
+                "ssid": o.ssid or "<hidden>",
+                "bssid": o.bssid or "",
+                "status": status_norm or "ANOMALY",
+                "count": 1,
+                "first_seen": o.server_ts,
+                "last_seen": o.server_ts,
+                # keep a sample observation to link to detail page if needed
+                "sample": o,
+            }
+        else:
+            existing["count"] += 1
+            if o.server_ts:
+                if existing["first_seen"] is None or o.server_ts < existing["first_seen"]:
+                    existing["first_seen"] = o.server_ts
+                if existing["last_seen"] is None or o.server_ts > existing["last_seen"]:
+                    existing["last_seen"] = o.server_ts
+
+    anomalies_critical = sorted(
+        cases_by_key.values(),
+        key=lambda c: c["last_seen"] or now,
+        reverse=True,
+    )
 
     return render(
         request,
@@ -212,6 +281,8 @@ def dashboard(request):
             "device_rows": device_rows,
             "current_unwhitelisted": current_unwhitelisted,
             "recent_alerts": recent_alerts,
+            # NOTE: now a list of grouped anomaly "cases", not raw observations.
+            # Each item has: ssid, bssid, status, count, first_seen, last_seen, sample
             "anomalies_critical": anomalies_critical,
         },
     )
@@ -231,6 +302,8 @@ def observations(request):
     - Whitelist anomalies table recomputes dynamic_anomaly each load and
       now shows *current* anomalies (latest row per SSID/BSSID), not just
       last 60 minutes.
+    - Entries covered by a WhitelistAnomalyOverride are hidden from the
+      anomaly table.
     - Each of the 3 small tables has its own SSID/BSSID search:
         flag_q, alert_q, anomaly_q.
     """
@@ -361,8 +434,9 @@ def observations(request):
     # 4) WHITELIST ANOMALIES (CURRENT, dedup by SSID/BSSID + anomaly_q)
     # ----------------------
     # We scan all observations (newest first), keep only dynamic_anomaly==True,
-    # and keep the latest row per (ssid, bssid). This means anomalies remain
-    # listed until the whitelist is edited so they are no longer anomalies.
+    # skip any covered by WhitelistAnomalyOverride, and keep the latest row
+    # per (ssid, bssid). This means anomalies remain listed until the whitelist
+    # or overrides are edited so they are no longer anomalies.
     base_anom_qs = (
         AccessPointObservation.objects
         .select_related("device")
@@ -377,6 +451,10 @@ def observations(request):
         if not o.dynamic_anomaly:
             continue
 
+        # Respect overrides: if ignored, do not show
+        if _is_anomaly_ignored(o):
+            continue
+
         if anomaly_q_lc:
             text = f"{o.ssid or ''} {o.bssid or ''}".lower()
             if anomaly_q_lc not in text:
@@ -387,8 +465,6 @@ def observations(request):
             latest_by_key[key] = o
 
     anomaly_rows = list(latest_by_key.values())
-    # already in newest-first order because base_anom_qs is -server_ts
-    # but we can sort again to be explicit:
     anomaly_rows.sort(key=lambda x: x.server_ts or now, reverse=True)
 
     # ----------------------

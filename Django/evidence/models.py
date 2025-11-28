@@ -1,6 +1,7 @@
 from django.db import models
 from django.utils import timezone
 from django.core.validators import MinValueValidator, MaxValueValidator
+from django.conf import settings  # NEW: for WhitelistAnomalyOverride.created_by
 
 
 # --------------------------------------------------------------------------
@@ -416,3 +417,73 @@ class AccessPointObservation(models.Model):
         if self.chain_hash:
             return self.chain_hash.hex()
         return ""
+
+
+# --------------------------------------------------------------------------
+# 4) WHITELIST ANOMALY OVERRIDES (ignore specific evil-twin cases)
+# --------------------------------------------------------------------------
+class WhitelistAnomalyOverride(models.Model):
+    """
+    Lets you silence specific dynamic anomalies (e.g. a known 'evil twin'
+    that is actually legitimate).
+
+    Matching logic (used in _is_anomaly_ignored):
+      - If BSSID is set: match by BSSID (case-insensitive)
+      - Else if only SSID is set: match all APs using that SSID
+      - If status is set: match only that dynamic_status
+        (e.g. CHANNEL_MISMATCH). If blank, match any status.
+    """
+
+    ssid = models.CharField(
+        max_length=64,
+        blank=True,
+        help_text="Optional SSID to match (case-insensitive).",
+    )
+    bssid = models.CharField(
+        max_length=20,
+        blank=True,
+        help_text="Optional BSSID (MAC) to match, e.g. AA:BB:CC:DD:EE:FF.",
+    )
+    status = models.CharField(
+        max_length=64,
+        blank=True,
+        help_text=(
+            "dynamic_status to ignore (e.g. CHANNEL_MISMATCH). "
+            "Leave blank to ignore ALL statuses for this SSID/BSSID."
+        ),
+    )
+
+    reason = models.TextField(
+        blank=True,
+        help_text="Why this anomaly is intentionally ignored.",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    active = models.BooleanField(
+        default=True,
+        help_text="Only active overrides are applied.",
+    )
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="anomaly_overrides",
+        help_text="User who created this override.",
+    )
+
+    class Meta:
+        verbose_name = "Whitelist anomaly override"
+        verbose_name_plural = "Whitelist anomaly overrides"
+        indexes = [
+            models.Index(fields=["bssid"]),
+            models.Index(fields=["ssid"]),
+            models.Index(fields=["status"]),
+            models.Index(fields=["active"]),
+        ]
+
+    def __str__(self):
+        who = self.bssid or self.ssid or "<any>"
+        st = self.status or "<any-status>"
+        return f"Ignore {who} ({st})"

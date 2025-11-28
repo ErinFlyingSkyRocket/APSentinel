@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+
+{% block content %}
+<main style="padding:1.5rem;">
+  <h1 class="page-title" style="font-size:1.4rem; margin-bottom:0.5rem;">
+    Whitelist Anomaly Overrides
+  </h1>
+
+  <p style="color:var(--muted); font-size:0.85rem; max-width:60rem; margin-bottom:1rem;">
+    Use this page to <strong>acknowledge / suppress recurring whitelist anomalies</strong>
+    such as intentional lab APs or known “weird” configurations. An active override
+    tells the dashboard to stop alerting for that specific SSID/BSSID/status combination.
+  </p>
+
+  <div class="dash-row" style="align-items:flex-start; gap:1rem;">
+    <!-- LEFT: create / edit override form -->
+    <div class="obs-block" style="max-width:420px; flex:0 0 420px;">
+      <h3 style="margin-bottom:0.5rem;">Add / update override</h3>
+      <p style="color:var(--muted); font-size:0.75rem; margin-top:0; margin-bottom:0.75rem;">
+        Fill in SSID, BSSID and status code to match the anomaly shown on the dashboard.
+        Optionally set an expiry date so the override auto-expires.
+      </p>
+
+      <form method="post" class="form-vertical">
+        {% csrf_token %}
+
+        <!-- SSID -->
+        <div class="field">
+          <label for="{{ form.ssid.id_for_label }}">SSID</label>
+          {{ form.ssid }}
+          {% if form.ssid.help_text %}
+            <div class="help">{{ form.ssid.help_text }}</div>
+          {% endif %}
+          {% if form.ssid.errors %}
+            <div class="errorlist">{{ form.ssid.errors }}</div>
+          {% endif %}
+        </div>
+
+        <!-- BSSID -->
+        <div class="field">
+          <label for="{{ form.bssid.id_for_label }}">BSSID (MAC)</label>
+          {{ form.bssid }}
+          {% if form.bssid.help_text %}
+            <div class="help">{{ form.bssid.help_text }}</div>
+          {% endif %}
+          {% if form.bssid.errors %}
+            <div class="errorlist">{{ form.bssid.errors }}</div>
+          {% endif %}
+        </div>
+
+        <!-- Status code -->
+        <div class="field">
+          <label for="{{ form.status_code.id_for_label }}">Status code</label>
+          {{ form.status_code }}
+          {% if form.status_code.help_text %}
+            <div class="help">{{ form.status_code.help_text }}</div>
+          {% else %}
+            <div class="help">
+              Example: <code>CHANNEL_MISMATCH</code>, <code>SECURITY_MISMATCH</code>,
+              <code>KNOWN_SSID_BUT_UNEXPECTED_AP</code>.
+            </div>
+          {% endif %}
+          {% if form.status_code.errors %}
+            <div class="errorlist">{{ form.status_code.errors }}</div>
+          {% endif %}
+        </div>
+
+        <!-- Expires at -->
+        <div class="field">
+          <label for="{{ form.expires_at.id_for_label }}">Expires at (optional)</label>
+          {{ form.expires_at }}
+          {% if form.expires_at.help_text %}
+            <div class="help">{{ form.expires_at.help_text }}</div>
+          {% else %}
+            <div class="help">
+              Leave empty for a permanent override, or set a date/time to auto-expire.
+            </div>
+          {% endif %}
+          {% if form.expires_at.errors %}
+            <div class="errorlist">{{ form.expires_at.errors }}</div>
+          {% endif %}
+        </div>
+
+        <!-- Is active -->
+        <div class="field">
+          <label style="display:flex; align-items:center; gap:0.35rem;">
+            {{ form.is_active }}
+            <span>Override is active</span>
+          </label>
+          {% if form.is_active.help_text %}
+            <div class="help">{{ form.is_active.help_text }}</div>
+          {% else %}
+            <div class="help">
+              Uncheck to keep the override record but stop suppressing alerts.
+            </div>
+          {% endif %}
+          {% if form.is_active.errors %}
+            <div class="errorlist">{{ form.is_active.errors }}</div>
+          {% endif %}
+        </div>
+
+        <!-- Reason / notes -->
+        <div class="field">
+          <label for="{{ form.reason.id_for_label }}">Reason / notes</label>
+          {{ form.reason }}
+          {% if form.reason.help_text %}
+            <div class="help">{{ form.reason.help_text }}</div>
+          {% else %}
+            <div class="help">
+              Short explanation, e.g. “Temporary test AP in lab”, “Vendor maintenance window”.
+            </div>
+          {% endif %}
+          {% if form.reason.errors %}
+            <div class="errorlist">{{ form.reason.errors }}</div>
+          {% endif %}
+        </div>
+
+        {% if form.non_field_errors %}
+          <div class="errorlist">{{ form.non_field_errors }}</div>
+        {% endif %}
+
+        <div style="margin-top:0.75rem;">
+          <button type="submit">Save override</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- RIGHT: existing overrides -->
+    <div class="obs-block" style="flex:1;">
+      <h3 style="margin-bottom:0.5rem;">
+        Existing overrides
+        <span style="float:right; font-size:0.75rem; color:var(--muted);">
+          Total: {{ overrides|length }}
+        </span>
+      </h3>
+
+      <p style="margin:0 0 0.5rem; color:var(--muted); font-size:0.75rem;">
+        Active overrides are used by the dashboard to suppress matching whitelist anomalies.
+        Inactive or expired rows are kept for audit trail.
+      </p>
+
+      <div class="table-wrap">
+        <table class="table-tight">
+          <thead>
+            <tr>
+              <th>SSID</th>
+              <th>BSSID</th>
+              <th>Status code</th>
+              <th>Active</th>
+              <th>Expires</th>
+              <th>Created by</th>
+              <th>Created at</th>
+              <th>Reason</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% if overrides %}
+              {% for o in overrides %}
+                <tr {% if not o.is_active %}style="opacity:0.6;"{% endif %}>
+                  <td class="ellipsis">{{ o.ssid|default:"—" }}</td>
+                  <td class="mono ch-16">{{ o.bssid|default:"—" }}</td>
+                  <td class="mono">{{ o.status_code|default:"—" }}</td>
+                  <td>
+                    {% if o.is_active %}
+                      <span class="badge badge-up">active</span>
+                    {% else %}
+                      <span class="badge badge-down">inactive</span>
+                    {% endif %}
+                  </td>
+                  <td style="white-space:nowrap;">
+                    {% if o.expires_at %}
+                      {{ o.expires_at|date:"M j, Y, g:i a" }}
+                    {% else %}
+                      —
+                    {% endif %}
+                  </td>
+                  <td>
+                    {% if o.created_by %}
+                      {{ o.created_by.get_full_name|default:o.created_by.username }}
+                    {% else %}
+                      —
+                    {% endif %}
+                  </td>
+                  <td style="white-space:nowrap;">
+                    {{ o.created_at|date:"M j, Y, g:i a" }}
+                  </td>
+                  <td class="ellipsis" title="{{ o.reason }}">
+                    {{ o.reason|default:"—" }}
+                  </td>
+                </tr>
+              {% endfor %}
+            {% else %}
+              <tr>
+                <td colspan="8" class="empty">
+                  No overrides defined yet.  
+                  Use the form on the left to acknowledge a known or intentional anomaly.
+                </td>
+              </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</main>
+{% endblock %}
