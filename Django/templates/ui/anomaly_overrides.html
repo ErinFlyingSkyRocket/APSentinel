@@ -151,6 +151,7 @@
               <th>Created by</th>
               <th>Created at</th>
               <th>Reason</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -187,12 +188,17 @@
                   <td class="ellipsis" title="{{ o.reason }}">
                     {{ o.reason|default:"—" }}
                   </td>
+                  <td style="white-space:nowrap;">
+                    <a href="{% url 'anomaly_override_edit' o.id %}" class="btn-link">
+                      Edit
+                    </a>
+                  </td>
                 </tr>
               {% endfor %}
             {% else %}
               <tr>
-                <td colspan="8" class="empty">
-                  No overrides defined yet.  
+                <td colspan="9" class="empty">
+                  No overrides defined yet.
                   Use the form on the left to acknowledge a known or intentional anomaly.
                 </td>
               </tr>
