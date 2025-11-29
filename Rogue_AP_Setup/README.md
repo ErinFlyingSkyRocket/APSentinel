@@ -77,7 +77,7 @@ Run the Script ```start_rogue_ap.sh```
 
 Run the Script ```stop_rogue_ap.sh``` to stop the processes
 
-The config files for ```hostapd.conf``` and ```dnsmaq.conf``` are provided
+The config files for ```hostapd.conf``` and ```dnsmasq.conf``` are provided
 
 Ensure that the config files location are properly reflected in the ```start_rogue_ap.sh``` and ```stop_rogue_ap.sh``` script
 
