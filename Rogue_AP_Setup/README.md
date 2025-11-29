@@ -30,6 +30,9 @@ sudo dpkg -i *.deb
 sudo apt-get -f install
 ```
 
+USB Wifi Adapater:
+```AWUS036ACH```
+
 Setting up Environment:
 
 Step 1: Clone the Driver Repository
