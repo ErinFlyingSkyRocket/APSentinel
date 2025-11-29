@@ -66,11 +66,13 @@ Check if the adapter and usb is detected:
 You should see an interface like wlan1 or wlan0 or realtek usb detected depending on your system.
 
 Trouble Shooting:
+
 If the adapter and usb is not detected, please verify that ```sudo modprobe 8812au``` does not throw any errors
 
 Check if your vmware/virtual box enables usb3.0/3.1 connections
 
 To start testing RogueAP:
+
 Run the Script ```start_rogue_ap.sh```
 
 Run the Script ```stop_rogue_ap.sh``` to stop the processes
