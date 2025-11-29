@@ -87,6 +87,8 @@ Ensure correct config paths in both scripts:
 -   Ensure VMware/VirtualBox **USB 3.0/3.1** is enabled\
 -   Ensure the system sees the adapter via `lsusb`
 -   If you find that there are errors when running the `hostapd.conf` and `dnsmasq.conf`, it should be resolved when you remove the comments in the file
+-   It is best to run the following commands before testing the Rogue AP `sudo systemctl restart NetworkManager` and `sudo dhclient -v eth0`
+
 
 ------------------------------------------------------------------------
 
