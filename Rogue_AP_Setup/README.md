@@ -62,14 +62,6 @@ You should see `wlan0` or `wlan1` listed and Realtek USB detected.
 
 ------------------------------------------------------------------------
 
-## 🛠 Troubleshooting
-
--   Ensure `sudo modprobe 8812au` has **no errors**
--   Ensure VMware/VirtualBox **USB 3.0/3.1** is enabled\
--   Ensure the system sees the adapter via `lsusb`
-
-------------------------------------------------------------------------
-
 ## 🚨 Rogue AP Setup
 
 ### **To start Rogue AP**
@@ -86,6 +78,15 @@ Ensure correct config paths in both scripts:
     DNSMASQ_CONF="/root/awus/rtl8812au/dnsmasq.conf"
 
 `hostapd.conf` and `dnsmasq.conf` must both be present in the directory.
+
+------------------------------------------------------------------------
+
+## 🛠 Troubleshooting
+
+-   Ensure `sudo modprobe 8812au` has **no errors**
+-   Ensure VMware/VirtualBox **USB 3.0/3.1** is enabled\
+-   Ensure the system sees the adapter via `lsusb`
+-   If you find that there are errors when running the `hostapd.conf` and `dnsmasq.conf`, it should be resolved when you remove the comments in the file
 
 ------------------------------------------------------------------------
 
