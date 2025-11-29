@@ -64,7 +64,7 @@ python -m espsecure encrypt_flash_data ^
   "%BOOT_PLAIN%"
 
 if errorlevel 1 (
-  echo [!] ERROR: espsecure (bootloader) failed.
+  echo [!] ERROR: espsecure bootloader step failed.
   pause
   exit /b 1
 )
@@ -77,7 +77,7 @@ python -m espsecure encrypt_flash_data ^
   "%PART_PLAIN%"
 
 if errorlevel 1 (
-  echo [!] ERROR: espsecure (partitions) failed.
+  echo [!] ERROR: espsecure partitions step failed.
   pause
   exit /b 1
 )
@@ -90,7 +90,7 @@ python -m espsecure encrypt_flash_data ^
   "%APP_PLAIN%"
 
 if errorlevel 1 (
-  echo [!] ERROR: espsecure (app) failed.
+  echo [!] ERROR: espsecure app step failed.
   pause
   exit /b 1
 )

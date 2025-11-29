@@ -47,18 +47,18 @@ python -m espsecure encrypt_flash_data ^
   "%APP_PLAIN%"
 
 if errorlevel 1 (
-  echo [!] ERROR: espsecure (encrypt app) failed.
+  echo [!] ERROR: espsecure app step failed.
   pause
   exit /b 1
 )
 
 echo [*] Flashing encrypted app to %PORT% at %APP_ADDR% ...
-esptool.py --chip esp32 --port %PORT% --baud 460800 ^
+python -m esptool --chip esp32 --port %PORT% --baud 460800 ^
   --before default_reset --after hard_reset ^
   write_flash %APP_ADDR% "%APP_ENC%"
 
 if errorlevel 1 (
-  echo [!] ERROR: esptool.py write_flash failed.
+  echo [!] ERROR: esptool write_flash failed.
   pause
   exit /b 1
 )
