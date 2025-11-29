@@ -21,7 +21,8 @@ Download these `.deb` packages:
 Sources:
 
     http://old.kali.org/kali/pool/main/l/linux/
-    http://old.kali.org/kali/pool
+    https://old.kali.org/kali/pool/main/d/
+    https://old.kali.org/kali/pool/main/w/wpa/
 
 Install them:
 
