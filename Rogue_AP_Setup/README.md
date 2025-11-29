@@ -35,7 +35,10 @@ USB Wifi Adapater:
 
 Setting up Environment:
 
-Step 1: Clone the Driver Repository
+Step 1:
+
+Clone the Driver Repository
+
 Download the official driver repository for RTL8812AU:
 
 ```
@@ -43,7 +46,10 @@ Download the official driver repository for RTL8812AU:
    cd rtl8812au
 ```
                  
-Step 2: Build and Install the Driver
+Step 2:
+
+Build and Install the Driver
+
 Now compile and install the driver:
 
 ```
@@ -52,14 +58,20 @@ Now compile and install the driver:
    sudo make install
 ```
                      
-Step 3: Load the Module
+Step 3:
+
+Load the Module
+
 After installation, load the kernel module:
 
 ```
    sudo modprobe 8812au
 ```
                      
-Step 4: Verify the Installation
+Step 4:
+
+Verify the Installation
+
 Check if the adapter and usb is detected:
 
 ```
