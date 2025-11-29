@@ -1,102 +1,98 @@
-Kali Linux Version Required: 
-```
-Kali-Linux-2018.2-vm-amd64
-```
+# Rogue AP Setup with RTL8812AU (AWUS036ACH)
 
-Link:
-```
-https://old.kali.org/kali-images/kali-2018.2/
-```
+## 📌 Kali Linux Version Required
 
-Packages Required:
-```
-linux-headers-4.15.0-kali2-common_4.15.11-1kali1_all.deb
-linux-headers-4.15.0-kali2-amd64_4.15.11-1kali1_amd64.deb
-linux-kbuild-4.15_4.15.11-1kali1_amd64.deb
-linux-compiler-gcc-7-x86_4.15.11-1kali1_amd64.deb
-dnsmasq_2.80-1.1_all.deb
-hostapd_2.6-21_amd64.deb
-```
+-   **Kali-Linux-2018.2-vm-amd64**\
+    Download: `https://old.kali.org/kali-images/kali-2018.2/`
 
-Link:
-```
-http://old.kali.org/kali/pool/main/l/linux/
-http://old.kali.org/kali/pool
-```
+------------------------------------------------------------------------
 
-Installation of Packages:
-```
-sudo dpkg -i *.deb
-sudo apt-get -f install
-```
+## 📦 Packages Required
 
-USB Wifi Adapater:
-```AWUS036ACH```
+Download these `.deb` packages:
 
-Setting up Environment:
+    linux-headers-4.15.0-kali2-common_4.15.11-1kali1_all.deb
+    linux-headers-4.15.0-kali2-amd64_4.15.11-1kali1_amd64.deb
+    linux-kbuild-4.15_4.15.11-1kali1_amd64.deb
+    linux-compiler-gcc-7-x86_4.15.11-1kali1_amd64.deb
+    dnsmasq_2.80-1.1_all.deb
+    hostapd_2.6-21_amd64.deb
 
-Step 1:
+Sources:
 
-Clone the Driver Repository
+    http://old.kali.org/kali/pool/main/l/linux/
+    http://old.kali.org/kali/pool
 
-Download the official driver repository for RTL8812AU:
+Install them:
 
-```
-   git clone https://github.com/aircrack-ng/rtl8812au.git
-   cd rtl8812au
-```
-                 
-Step 2:
+    sudo dpkg -i *.deb
+    sudo apt-get -f install
 
-Build and Install the Driver
+------------------------------------------------------------------------
 
-Now compile and install the driver:
+## 🔌 USB WiFi Adapter
 
-```
-   make clean
-   make
-   sudo make install
-```
-                     
-Step 3:
+**Alfa AWUS036ACH (RTL8812AU chipset)**
 
-Load the Module
+------------------------------------------------------------------------
 
-After installation, load the kernel module:
+## ⚙️ Driver Setup (RTL8812AU)
 
-```
-   sudo modprobe 8812au
-```
-                     
-Step 4:
+### **Step 1 --- Clone driver**
 
-Verify the Installation
+    git clone https://github.com/aircrack-ng/rtl8812au.git
+    cd rtl8812au
 
-Check if the adapter and usb is detected:
+### **Step 2 --- Build and install**
 
-```
-   iwconfig
-   lsusb
-```                     
-You should see an interface like wlan1 or wlan0 or realtek usb detected depending on your system.
+    make clean
+    make
+    sudo make install
 
-Trouble Shooting:
+### **Step 3 --- Load the module**
 
-If the adapter and usb is not detected, please verify that ```sudo modprobe 8812au``` does not throw any errors
+    sudo modprobe 8812au
 
-Check if your vmware/virtual box enables usb3.0/3.1 connections
+### **Step 4 --- Verify**
 
-To start testing RogueAP:
+    iwconfig
+    lsusb
 
-Run the Script ```start_rogue_ap.sh```
+You should see `wlan0` or `wlan1` listed and Realtek USB detected.
 
-Run the Script ```stop_rogue_ap.sh``` to stop the processes
+------------------------------------------------------------------------
 
-The config files for ```hostapd.conf``` and ```dnsmasq.conf``` are provided
+## 🛠 Troubleshooting
 
-Ensure that the config files location are properly reflected in the ```start_rogue_ap.sh``` and ```stop_rogue_ap.sh``` script
+-   Ensure `sudo modprobe 8812au` has **no errors**
+-   Ensure VMware/VirtualBox **USB 3.0/3.1** is enabled\
+-   Ensure the system sees the adapter via `lsusb`
 
-```
-HOSTAPD_CONF="/root/awus/rtl8812au/hostapd.conf"
-DNSMASQ_CONF="/root/awus/rtl8812au/dnsmasq.conf"
-```
+------------------------------------------------------------------------
+
+## 🚨 Rogue AP Setup
+
+### **To start Rogue AP**
+
+    ./start_rogue_ap.sh
+
+### **To stop Rogue AP**
+
+    ./stop_rogue_ap.sh
+
+Ensure correct config paths in both scripts:
+
+    HOSTAPD_CONF="/root/awus/rtl8812au/hostapd.conf"
+    DNSMASQ_CONF="/root/awus/rtl8812au/dnsmasq.conf"
+
+`hostapd.conf` and `dnsmasq.conf` must both be present in the directory.
+
+------------------------------------------------------------------------
+
+## ✅ This setup includes:
+
+-   Hostapd (patched 2.6)
+-   Dnsmasq for DHCP
+-   Proper RTL8812AU drivers
+-   Scripts for clean start/stop workflow
+-   Tested on Kali Linux **2018.2**
