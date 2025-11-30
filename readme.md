@@ -1,5 +1,4 @@
 # 🛰️ Apsentinel — Network Forensics Dashboard
-# 🛰️ Apsentinel — Network Forensics Dashboard
 Apsentinel is a **Django-based network forensics web application** for managing and visualizing Wi-Fi observations collected from registered **ESP32 sensors**.  
 It maintains an **append-only evidence chain**, verifying each observation’s integrity and ensuring authenticity using **ECDSA + SHA-256** cryptography.
 
